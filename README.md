@@ -41,8 +41,8 @@
 | 1 | 📦 Pascal VOC2007 数据准备 | ✅ 完成 | 数据集下载、目录组织、路径配置 |
 | 2 | 🗂️ `VOCDataset` 数据加载器 | ✅ 完成 | XML 解析、类别映射、transform 接口 |
 | 2 | 🧪 数据加载单元测试 | ✅ 完成 | 独立测试文件，验证 Bounding Box 与标签正确性 |
-| 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积主干 + 全连接头架构完整搭建（`forward` 函数待实现） |
-| 4 | 📉 前向传播与 Loss 函数 | ⏳ 计划中 | 实现 `forward` 输出 `7×7×30` 张量 + `loss/yolo_loss.py` 坐标 / 置信度 / 分类三项损失联合实现 |
+| 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积主干 + 全连接头架构完整搭建（手搓过程中补齐了官方 Backbone 漏掉的两层卷积，并清晰化了全部层注释） |
+| 4 | 📉 前向传播与 Loss 函数 | ✅ 前向传播已完成 | `forward` 函数已实现并通过维度断言测试（Smoke Test），输出严格对齐 `(batch_size, 1470)`；Loss 函数待实现 |
 | 5 | 🔁 训练循环 | ⏳ 计划中 | `train.py` + `config.py` + `tools/train_utils.py` |
 | 6 | 🔍 推理与可视化 | ⏳ 计划中 | `detect.py` + `utils/nms.py` + `utils/visualize.py` |
 | 7 | 🎥 视频目标追踪 | ⏳ 计划中 | `track.py`，基于 SORT 或简单 IoU 匹配 |
@@ -54,6 +54,10 @@
 ### 网络架构设计哲学
 
 YOLOv1 的 24 层网络由 **卷积特征提取主干**（20 层）和 **全连接检测头**（4 层）组成，参照 GoogLeNet 的设计思路，通过 1×1 卷积降维再 3×3 卷积扩展通道数的交替策略，在控制参数量的同时保证特征表达能力。
+
+### 核心超参数配置
+
+本项目严格遵循 YOLOv1 原始论文的配置：网格数 **S=7**，每个网格预测边界框数 **B=2**，Pascal VOC 类别数 **C=20**。输出特征图形状严格对齐为 `(batch_size, 1470)`，符合数学契约 `7 × 7 × (2 × 5 + 20) = 1470`。模型总参数量为 **271,703,550**，其中约 75% 的参数集中在第一层全连接层（50176 → 4096）。
 
 ### 逐层空间几何与数学本质
 
@@ -173,13 +177,21 @@ python utils/voc_dataset_test.py
 
 运行后将输出图像尺寸、Bounding Box 坐标及类别标签，用于验证数据管道的正确性。
 
-### 5. 训练（即将支持）
+### 5. 测试模型前向传播
+
+```bash
+python test_model.py
+```
+
+运行后执行前向传播维度断言测试（Smoke Test）：以随机生成的 `(4, 3, 448, 448)` 张量作为输入，验证输出形状严格等于 `(batch_size, 1470)`，并打印模型总参数量。当前已通过全部测试。
+
+### 6. 训练（即将支持）
 
 ```bash
 python train.py --epochs 135 --batch_size 64 --lr 0.001
 ```
 
-### 6. 推理（即将支持）
+### 7. 推理（即将支持）
 
 ```bash
 python detect.py --image path/to/image.jpg --weights checkpoints/yolov1.pth
@@ -190,7 +202,7 @@ python detect.py --image path/to/image.jpg --weights checkpoints/yolov1.pth
 ## 后续计划 (Phase 4 及以后)
 
 **Phase 4 — 前向传播与 Loss 函数**
-实现 `forward` 函数，完成 `7×7×30` 输出张量的生成逻辑。实现 YOLO 的多任务联合损失，包括：坐标回归损失（仅对负责预测的 box）、置信度损失（有物体 vs 无物体分开加权）、分类交叉熵损失。深入理解 `λ_coord = 5`、`λ_noobj = 0.5` 的设计动机。
+`forward` 函数已实现并通过维度断言测试：输入 `(batch_size, 3, 448, 448)`，输出严格对齐 `(batch_size, 1470)`。在手搓过程中补齐了官方 Backbone 漏掉的两层卷积（最终特征提取阶段的两个 3×3 卷积），并清晰化了原本模糊的层注释。下一步实现 YOLO 的多任务联合损失，包括：坐标回归损失（仅对负责预测的 box）、置信度损失（有物体 vs 无物体分开加权）、分类交叉熵损失。深入理解 `λ_coord = 5`、`λ_noobj = 0.5` 的设计动机。
 
 **Phase 5 — 训练流程**
 搭建完整训练循环，含学习率分段衰减策略、模型权重 checkpoint 保存、训练过程 loss 曲线记录与可视化（TensorBoard 或 matplotlib）。
