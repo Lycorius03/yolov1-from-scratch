@@ -202,7 +202,7 @@ python detect.py --image path/to/image.jpg --weights checkpoints/yolov1.pth
 ## 后续计划 (Phase 4 及以后)
 
 **Phase 4 — 前向传播与 Loss 函数**
-`forward` 函数已实现并通过维度断言测试：输入 `(batch_size, 3, 448, 448)`，输出严格对齐 `(batch_size, 1470)`。在手搓过程中补齐了官方 Backbone 漏掉的两层卷积（最终特征提取阶段的两个 3×3 卷积），并清晰化了原本模糊的层注释。下一步实现 YOLO 的多任务联合损失，包括：坐标回归损失（仅对负责预测的 box）、置信度损失（有物体 vs 无物体分开加权）、分类交叉熵损失。深入理解 `λ_coord = 5`、`λ_noobj = 0.5` 的设计动机。
+`forward` 函数已实现并通过维度断言测试：输入 `(batch_size, 3, 448, 448)`，输出严格对齐 `(batch_size, 1470)`。在手搓过程中补齐了最初版本 Backbone 漏掉的两层卷积（最终特征提取阶段的两个 3×3 卷积），并清晰化了原本模糊的层注释。下一步实现 YOLO 的多任务联合损失，包括：坐标回归损失（仅对负责预测的 box）、置信度损失（有物体 vs 无物体分开加权）、分类交叉熵损失。深入理解 `λ_coord = 5`、`λ_noobj = 0.5` 的设计动机。
 
 **Phase 5 — 训练流程**
 搭建完整训练循环，含学习率分段衰减策略、模型权重 checkpoint 保存、训练过程 loss 曲线记录与可视化（TensorBoard 或 matplotlib）。

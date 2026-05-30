@@ -17,5 +17,6 @@ if __name__ == "__main__":
   assert output.shape == (batch_size, excpeted_dim), \
     f"老大，输出形状错误了喵(っ °Д °;)っ！预期：({batch_size}, {excpeted_dim})，实际：{output.shape}"
   print("好耶！老大，我们成功了喵！输出形状完全正确<(￣︶￣)↗[GO!]")
+
+  #输出总参数量
   print(f"模型总参数量：{sum(p.numel() for p in model.parameters()):,}")
-  
