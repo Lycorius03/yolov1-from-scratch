@@ -14,18 +14,18 @@ class YOLOv1(nn.Module):
 
   #========================================================卷积层========================================================
     self.conv_layers = nn.Sequential(
-      #Conv1-2负责粗提取特征，降低图片尺寸也为降低硬件负担
-      #Conv1 448 × 448 → 224 × 224
+      #Layer1-2负责粗提取特征，降低图片尺寸也为降低硬件负担
+      #Layer1
       nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3),
       nn.LeakyReLU(0.1),
       nn.MaxPool2d(kernel_size=2, stride=2),
-  
-      #Conv2 224 × 224 → 112 × 112
+
+      #Layer2
       nn.Conv2d(in_channels=64, out_channels=192, kernel_size=3, stride=1, padding=1),
       nn.LeakyReLU(0.1),
       nn.MaxPool2d(kernel_size=2, stride=2),
 
-      #Conv3-6 112 × 112 → 56 × 56 → 28 × 28
+      #Layer3-5
       nn.Conv2d(in_channels=192, out_channels=128, kernel_size=1),
       nn.LeakyReLU(0.1),
       nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
@@ -36,13 +36,7 @@ class YOLOv1(nn.Module):
       nn.LeakyReLU(0.1),
       nn.MaxPool2d(kernel_size=2, stride=2),
 
-      #Conv7-16 28 × 28 → 14 × 14 
-      # (1×1,256 + 3×3,512) ×4
-      # 输出 14×14×1024
-      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1),
-      nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
-      nn.LeakyReLU(0.1),
+      #Layer6-8
       nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1),
       nn.LeakyReLU(0.1),
       nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
@@ -58,12 +52,9 @@ class YOLOv1(nn.Module):
       nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, stride=1),
       nn.LeakyReLU(0.1),
       nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1),
-      nn.LeakyReLU(0.1),
       nn.MaxPool2d(kernel_size=2, stride=2),
 
-      #Conv17-22 14 × 14 → 7 × 7
-      # (1×1,512 + 3×3,1024) ×2
-      # 下采样到 7×7
+      #Layer9-13
       nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=1, stride=1),
       nn.LeakyReLU(0.1),
       nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1),
@@ -77,9 +68,7 @@ class YOLOv1(nn.Module):
       nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=2, padding=1),
       nn.LeakyReLU(0.1),
 
-      #Conv23-24 
-      # 最终特征提取
-      # 输出 7×7×1024
+      #Layer14-20
       nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=1, padding=1),
       nn.LeakyReLU(0.1),
       nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=1, padding=1),
@@ -88,29 +77,15 @@ class YOLOv1(nn.Module):
 
     #========================================================全连接层========================================================
     self.fc_layers = nn.Sequential(
-      #Feature Flatten
+      #展平特征图
       nn.Flatten(),
       
-      #FC1: 50176 → 4096
+      #Layer1
       nn.Linear(7 * 7 * 1024, 4096),
       nn.LeakyReLU(0.1),
       nn.Dropout(0.5),
 
-      #FC2: 4096 → 1470 (7×7×(20 + 2×5))
-      nn.Linear(4096, self.S * self.S * (self.B * 5 + self.C))
+      #Layer2
+      nn.linear(4096, self.S * self.S * (self.B * 5 + self.C))
     )
     
-  def forward(self, x):
-    """
-    前向传播
-    x: 输入图像的张量，形状为(batch_size, 3, 448, 448)
-    return：(bacth_size, 1470)
-    """
-
-    #卷积特征提取
-    x = self.conv_layers(x)
-    
-    #全连接层预测
-    x = self.fc_layers(x)
-
-    return x
