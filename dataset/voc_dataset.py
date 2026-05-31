@@ -25,7 +25,7 @@ class VOCDataset(Dataset):
     # 获取图片数量
     self.image_ids = self._get_image_ids()
 
-    print(f"数据加载完成！共有{len(self.image_ids)}张图片")
+    # print(f"数据加载完成！共有{len(self.image_ids)}张图片")
 
   #_get_image_ids()函数实现
   def _get_image_ids(self):
@@ -60,13 +60,13 @@ class VOCDataset(Dataset):
     if self.transform:
       image = self.transform(image)
 
-    #返回简单格式
-    target = {
-      "boxes" : boxes,
-      "labels" : labels,
-      "image_id" : image_id
-    }
-
+    # #返回简单格式,此种格式只适合通用检测框架，Faster R-CNN, DETR, 数据分析等，YOLO需要特定的格式，也就是哟个_encode_target()转换之后的格式
+    # target = {
+    #   "boxes" : boxes,
+    #   "labels" : labels,
+    #   "image_id" : image_id
+    # }
+    target = self._encode_target(boxes, labels)
     return image, target
   
   #实现XML解析函数
@@ -97,3 +97,50 @@ class VOCDataset(Dataset):
     labels = torch.tensor(labels, dtype=torch.long)
 
     return boxes, labels
+
+  def _encode_target(self, boxes, labels, S=7, image_size=448):
+    target = torch.zeros((S, S, 30))
+
+    for i in range(len(boxes)):
+      xmin, ymin, xmax, ymax = boxes[i]
+      label = labels[i]
+      
+      #计算中心点和框的宽高
+      cx = (xmin + xmax) / 2
+      cy = (ymin + ymax) / 2 
+      w = xmax - xmin
+      h = ymax - ymin 
+      
+      #归一化到0-1
+      cx /= image_size
+      cy /= image_size
+      w /= image_size
+      h /= image_size
+
+      #判断落在哪个grid cell里
+      col = int(cx * S)
+      row = int(cy * S)
+      col = min(col, S - 1)
+      row = min(row, S - 1)
+
+      #计算中心点相对于所在grid cell的偏移
+      cx_cell = cx * S - col
+      cy_cell = cy * S - row
+
+      #填入bbox
+      target[row, col, 0] = cx_cell
+      target[row, col, 1] = cy_cell
+      target[row, col, 2] = w
+      target[row, col, 3] = h
+      target[row, col, 4] = 1.0
+
+      target[row, col, 5] = cx_cell
+      target[row, col, 6] = cy_cell
+      target[row, col, 7] = w
+      target[row, col, 8] = h
+      target[row, col, 9] = 1.0
+
+      #One_hot编码
+      target[row, col, 10 + label] = 1.0
+
+    return target
