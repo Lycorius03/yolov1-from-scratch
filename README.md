@@ -20,6 +20,18 @@
 
 ---
 
+## 项目背景
+
+本项目是我 CV 方向学习路径的第一个核心实践项目，位于"**目标级视觉 2D 感知**"阶段。
+
+选择 YOLOv1 而非直接上手 YOLOv5 或 YOLO 系列最新版，原因有三：
+
+1. **YOLOv1 是 anchor-free 单阶段检测器的思想起点**——后续的 YOLO 版本虽然引入了 anchor box、特征金字塔、解耦头等大量工程优化，但核心的"把目标检测转化为端到端回归问题"这一设计决策在 v1 中就已完成。理解 v1，是理解后续一切改进的前提。
+2. **从零复现能完整经历每一个设计决策**——为什么要分 7×7 的网格？为什么每个网格要预测 2 个 box？Loss 里 `λ_coord = 5` 和 `λ_noobj = 0.5` 的权衡从何而来？这些问题在调用高层 API 时是看不见的，但手搓每一行代码时会自然浮现。
+3. **24 层网络是理解深度学习工程化的最小完整体**——足够小（单卡可训），足够大（涵盖数据加载、模型搭建、损失设计、训练循环、推理后处理的全链路），是一个极佳的学习载体。
+
+---
+
 ## 项目目标与学习收获
 
 通过本项目，我系统掌握了以下能力：
@@ -84,48 +96,35 @@ YOLOv1 的 24 层网络由 **卷积特征提取主干**（20 层）和 **全连�
 
 ---
 
+## 实验结果
+
+> 训练进行中，结果持续更新。预计包含：Loss 曲线、mAP@0.5 曲线、各类别 AP 对比图、定性检测效果图。
+
+---
+
 ## 项目结构
 
 ```text
 yolov1-from-scratch/
 ├── data/                          # 数据集（.gitignore 忽略）
 │   └── VOCdevkit/
-│       ├── VOC2007/
-│       │   ├── Annotations/      # XML 标注文件
-│       │   ├── ImageSets/        # 训练/验证/测试集划分
-│       │   └── JPEGImages/       # 原始图像
-│       └── VOC2012/              # 后续扩展添加
+│       └── VOC2007/
+│           ├── Annotations/      # XML 标注文件
+│           ├── ImageSets/        # 训练/验证/测试集划分
+│           └── JPEGImages/       # 原始图像
 │
 ├── models/
-│   ├── __init__.py
 │   └── yolov1.py                 # YOLOv1 模型定义
 │
 ├── dataset/
-│   ├── __init__.py
 │   └── voc_dataset.py            # 数据加载器
 │
-├── loss/
-│   ├── __init__.py
-│   └── yolo_loss.py              # YOLOv1 专用 Loss
+├── loss/                          # YOLOv1 损失函数（待实现）
 │
-├── utils/
-│   ├── __init__.py
-│   ├── transforms.py             # 数据增强
-│   ├── nms.py                    # 非极大值抑制
-│   ├── visualize.py              # 画框可视化
-│   └── metrics.py                # mAP 计算等
-│
-├── tools/
-│   ├── convert_voc_to_yolo.py    # 标注格式转换（可选）
-│   └── train_utils.py            # 训练辅助函数
-│
-├── config.py                     # 超参数配置文件
-├── train.py                      # 训练主脚本
-├── detect.py                     # 单张图片/摄像头检测
-├── track.py                      # 视频目标追踪
-├── test_model.py                 # 模型测试
 ├── utils/
 │   └── voc_dataset_test.py       # 数据加载单元测试
+│
+├── test_model.py                 # 模型前向传播测试（Smoke Test）
 ├── requirements.txt
 ├── README.md
 └── .gitignore
@@ -184,18 +183,6 @@ python test_model.py
 ```
 
 运行后执行前向传播维度断言测试（Smoke Test）：以随机生成的 `(4, 3, 448, 448)` 张量作为输入，验证输出形状严格等于 `(batch_size, 1470)`，并打印模型总参数量。当前已通过全部测试。
-
-### 6. 训练（即将支持）
-
-```bash
-python train.py --epochs 135 --batch_size 64 --lr 0.001
-```
-
-### 7. 推理（即将支持）
-
-```bash
-python detect.py --image path/to/image.jpg --weights checkpoints/yolov1.pth
-```
 
 ---
 
