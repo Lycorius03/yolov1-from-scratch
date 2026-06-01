@@ -54,10 +54,10 @@
 | 2 | 🗂️ `VOCDataset` 数据加载器 | ✅ 完成 | XML 解析、类别映射、transform 接口 |
 | 2 | 🧪 数据加载单元测试 | ✅ 完成 | 独立测试文件，验证 Bounding Box 与标签正确性 |
 | 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积 + 2 层全连接检测头架构完整搭建 |
-| 4 | 📉 前向传播与 Loss 函数 | ✅ 前向传播已完成 | `forward` 函数已实现并通过维度断言测试（Smoke Test），输出严格对齐 `(batch_size, 1470)`；Loss 函数待实现 |
-| 5 | 🔁 训练循环 | ⏳ 计划中 | `train.py` + `config.py` + `tools/train_utils.py` |
-| 6 | 🔍 推理与可视化 | ⏳ 计划中 | `detect.py` + `utils/nms.py` + `utils/visualize.py` |
-| 7 | 🎥 视频目标追踪 | ⏳ 计划中 | `track.py`，基于 SORT 或简单 IoU 匹配 |
+| 4 | 📉 前向传播与 Loss 函数 | ✅ 完成 | `forward` 输出严格对齐 `(batch_size, 1470)`；Loss 完整实现（坐标/置信度/分类三分项 + IoU 工具）并已通过 Sanity Test |
+| 5 | 🔁 训练循环 + 可视化 | 🔄 进行中 | `train.py` + `config.py` + `tools/train_utils.py` |
+| 6 | 🔍 推理与 NMS | ⏳ 待开始 | `detect.py` + `utils/nms.py` + `utils/visualize.py` |
+| 7 | 🎥 视频目标追踪 (SORT) | ⏳ 待开始 | `track.py`，基于 SORT 或简单 IoU 匹配 |
 
 ---
 
@@ -94,11 +94,36 @@ YOLOv1 的检测网络由 **24 层卷积特征提取主干** 和 **2 层全连�
 **Dropout 的解耦协同适应机制（位于两个全连接层之间, p=0.5）**
 在 FC Layer 1 的 4096 维输出之后、FC Layer 2 检测头之前施加 Dropout(p=0.5)。其作用不是简单的"防止过拟合"——更深层的机制是**解耦协同适应**（Decoupled Co-adaptation）。在全连接层这样的高密度参数区域，神经元倾向于联合记忆训练样本的特定模式而非学习泛化特征。Dropout 通过随机屏蔽 50% 的神经元，强制每个神经元独立学习有意义的特征表示，而不是依赖其他神经元的"兜底"，确保最终送入检测头的 4096 维特征具备足够的泛化能力。
 
+### YOLOv1 损失函数的多任务结构
+
+YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失组成的多任务系统。
+
+#### 四项损失分解
+
+- **坐标损失（coord loss）**：仅对负责预测的 bbox 计算。中心坐标 (x, y) 使用线性误差，宽高 (w, h) 先取平方根再计算误差。√wh 的作用是压缩大框的梯度尺度，防止大尺寸框主导整体 loss。
+- **置信度损失（obj / noobj loss）**：分为有物体和无物体两部分。负责框学习真实置信度（IoU 相关），非负责框被压制到接近 0。两者通过不同权重（λ_noobj = 0.5）平衡。
+- **分类损失（class loss）**：仅在有物体的 grid cell 上计算，使用类别交叉熵。分类和定位共享骨干特征，但在输出层被解耦为独立的回归头和分类头。
+
+#### 责任分配机制（Hard Assignment）
+
+每个 grid cell 预测 B=2 个 bbox，但只有一个 bbox 负责学习真实目标。判定标准是与 ground truth 的 IoU——IoU 更高的 bbox 成为 responsible predictor，另一个 bbox 只学习 confidence ≈ 0。这种硬分配（hard assignment）机制简洁高效，但也是 YOLOv1 训练不稳定的来源之一。
+
+#### 框的本质：参数化输出而非几何区域
+
+检测框不是从图像中"裁"出来的区域，而是神经网络直接输出的参数化向量 (x, y, w, h)。所有后续操作（IoU 计算、NMS、可视化绘制）都基于这些预测值在张量层面的运算完成——理解这一点是将数学公式与 tensor 计算图对应起来的关键。
+
 ---
 
 ## 实验结果
 
-> 训练进行中，结果持续更新。预计包含：Loss 曲线、mAP@0.5 曲线、各类别 AP 对比图、定性检测效果图。
+> 训练进行中，结果持续更新。
+
+计划记录指标：
+
+- Train/Val Loss 曲线（每 epoch）
+- mAP@0.5 曲线（每 5 epoch 评估一次）
+- 各类别 AP 对比（训练完成后）
+- 定性检测效果图
 
 ---
 
@@ -117,12 +142,15 @@ yolov1-from-scratch/
 │   └── yolov1.py                 # YOLOv1 模型定义
 │
 ├── dataset/
-│   └── voc_dataset.py            # 数据加载器
+│   └── voc_dataset.py            # VOCDataset 数据加载器
 │
-├── loss/                          # YOLOv1 损失函数（待实现）
+├── loss/
+│   └── yolo_loss.py              # YOLOv1 多任务联合损失函数
 │
 ├── utils/
-│   └── voc_dataset_test.py       # 数据加载单元测试
+│   ├── voc_dataset_test.py       # 数据加载单元测试
+│   ├── loss_test.py              # Loss Sanity Test
+│   └── iou.py                    # IoU 计算工具
 │
 ├── test_model.py                 # 模型前向传播测试（Smoke Test）
 ├── requirements.txt
@@ -186,18 +214,15 @@ python test_model.py
 
 ---
 
-## 后续计划 (Phase 4 及以后)
-
-**Phase 4 — 前向传播与 Loss 函数**
-`forward` 函数已实现并通过维度断言测试：输入 `(batch_size, 3, 448, 448)`，输出严格对齐 `(batch_size, 1470)`。在手搓过程中补齐了最初版本 Backbone 漏掉的两层卷积（最终特征提取阶段的两个 3×3 卷积），并清晰化了原本模糊的层注释。下一步实现 YOLO 的多任务联合损失，包括：坐标回归损失（仅对负责预测的 box）、置信度损失（有物体 vs 无物体分开加权）、分类交叉熵损失。深入理解 `λ_coord = 5`、`λ_noobj = 0.5` 的设计动机。
+## 后续计划 (Phase 5 及以后)
 
 **Phase 5 — 训练流程**
 搭建完整训练循环，含学习率分段衰减策略、模型权重 checkpoint 保存、训练过程 loss 曲线记录与可视化（TensorBoard 或 matplotlib）。
 
-**Phase 6 — 推理与可视化**
+**Phase 6 — 推理与 NMS**
 实现 NMS（Non-Maximum Suppression）后处理，在原图上绘制检测框与置信度，支持单张图像与批量图像推理。
 
-**Phase 7 — 视频目标追踪**
+**Phase 7 — 视频目标追踪 (SORT)**
 在帧级检测结果的基础上，实现基于 IoU 匹配的简单多目标追踪（Simple SORT），为每个目标分配稳定的轨迹 ID，输出追踪视频。
 
 ---
@@ -212,4 +237,4 @@ python test_model.py
 
 ---
 
-持续更新中 · Last updated: 2026-05-30
+持续更新中 · Last updated: 2026-06-01
