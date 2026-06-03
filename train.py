@@ -144,7 +144,7 @@ if __name__ == "__main__":
     writer.writerow(["epoch","train_loss","val_loss","lr"])
 
   print(f"训练日志保存至:{log_file}")
-  NUM_EPOCHS = 10
+  # NUM_EPOCHS = 10
 
   best_val_loss = float('inf')
 
