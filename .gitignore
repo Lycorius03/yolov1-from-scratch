@@ -29,3 +29,7 @@ checkpoints/
 
 .DS_Store
 Thumbs.db
+
+# 训练输出
+runs/
+*.pth

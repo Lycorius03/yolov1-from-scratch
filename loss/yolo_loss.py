@@ -53,14 +53,14 @@ class YoloLoss(nn.Module):
     xy_loss = torch.sum((resp_pred[..., 0:2] - resp_target[..., 0:2]) ** 2)
 
     #wh Loss
-    wh_loss = torch.sum((torch.sqrt(torch.abs(resp_pred[..., 2:4]) + 1e-8) - torch.sqrt(torch.abs(resp_target[..., 2:4]) + 1e-8)) ** 2)
+    wh_loss = torch.sum((torch.sqrt(torch.abs(resp_pred[..., 2:4]) + 1e-6) - torch.sqrt(torch.abs(resp_target[..., 2:4]) + 1e-6)) ** 2)
 
     #coord Loss
     coord_loss = self.lambda_coord * (xy_loss + wh_loss)
 
     #obj confidence Loss
     obj_conf_pred = ((bbox1_responsible * bbox1_pred[..., 4]) + (bbox2_responsible * bbox2_pred[..., 4])) * obj_mask
-    obj__conf_loss = torch.sum((obj_conf_pred - obj_mask.float()) ** 2)
+    obj_conf_loss = torch.sum((obj_conf_pred - obj_mask.float()) ** 2)
 
     #noobj confidence Loss
     noobj_conf_loss = self.lambda_noobj * torch.sum(noobj_mask.unsqueeze(-1).float() * torch.stack([bbox1_pred[..., 4], bbox2_pred[..., 4]], dim=-1) ** 2)
@@ -69,6 +69,6 @@ class YoloLoss(nn.Module):
     class_loss = torch.sum(obj_mask.unsqueeze(-1).float() * (class_pred - class_target) ** 2)
 
     #total Loss
-    total_loss = coord_loss + obj__conf_loss + noobj_conf_loss +class_loss
+    total_loss = coord_loss + obj_conf_loss + noobj_conf_loss +class_loss
 
     return total_loss

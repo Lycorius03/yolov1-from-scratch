@@ -13,7 +13,7 @@ if __name__ == "__main__":
   predictions = torch.randn(batch_size, 1470)
   target = torch.zeros(batch_size, 7, 7, 30)
 
-  #手动给(3, 4)这个grid cell放入一个物体，类别11(dog)
+  #手动给(3, 4)这个grid cell放入一个物体，类别7(cat)
   target[0, 3, 4, 0:5] = torch.tensor([0.5, 0.5, 0.3, 0.4, 1.0])
   target[0, 3, 4, 5:10] = torch.tensor([0.5, 0.5, 0.3, 0.4, 1.0])
   target[0, 3, 4, 10 + 7] = 1.0
