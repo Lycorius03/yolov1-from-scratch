@@ -126,7 +126,13 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 这说明 `1e-3` 很可能就是这个模型的最优主干训练学习率，但凭直觉判断没有说服力，需要实验依据。
 
-#### 引入 LR Finder
+#### 第二次调整（引入 LR Finder）
+
+考虑到这是一个从零初始化的模型而非预训练模型，学习率策略是否需要彻底改变？当时想到的一种方案是使用余弦退火（Cosine Annealing）——它能自动平滑地衰减学习率，减少调参。但最终决定**不使用余弦退火**，原因如下：
+
+1. **忠于原论文设计**——YOLOv1 原论文明确使用分段常值学习率（step decay），这一 schedule 与 Loss 权重（`λ_coord=5`、`λ_noobj=0.5`）和训练节奏是耦合的。使用余弦退火会同时改变学习率和训练动力学，无法判断训练失败是学习率的问题还是其他模块的问题。
+2. **可控的实验变量**——LR Finder 是一次性扫描，不改变正式训练的学习率 schedule。它回答"哪个 lr 区间有效"，而余弦退火直接替换了整个 schedule。在 Loss 实现尚未验证正确性的前提下，引入新的学习率策略会掩盖真正的根因。
+3. **项目目标**——虽然目前已经对原论文做了部分调整（如 Warmup、梯度裁剪），但核心目标仍然是验证 YOLOv1 原始训练范式的可行性，尽可能跑通这条路。
 
 了解到 Leslie Smith 提出的 Learning Rate Range Test 后，实现了 `utils/lr_finder.py`，通过指数级扫描 lr 区间，系统化定位最优学习率，而不是靠猜。
 
@@ -142,19 +148,122 @@ $$\hat{v}_t = \frac{v_t}{1 - \beta^t}$$
 
 EMA 本身存在一个固有的系统性局限：过往所有时刻的 loss 都参与当前值的计算，旧观测持续残留权重，新 loss 的突变需要多轮迭代才能逐渐冲淡历史影响，曲线永远滞后于真实信号。调整衰减系数 β 可以缓解滞后，但平滑度和响应速度是数学上互斥的，无法同时最优，只能取一个合适的折中值。读图时需配合最陡处法（Steepest）或谷底倒退法（Valley）人工判断最优区间。
 
-#### LR Finder 结果
+#### 第二次 LR Finder 结果
 
-![LR Finder](lr_finder.png)
+首次实现 EMA + 偏差修正后的 LR Finder 曲线：
+
+![LR Finder (Second)](lr_finder_defect.png)
 
 - `1e-6` 至 `1e-4`：loss 平缓，lr 过小，学习几乎停滞
-- `1e-4` 至 `1e-2`：loss 持续下降，**最优区间**
+- `1e-4` 至 `1e-2`：loss 持续下降，有效收敛区间
 - `1e-2` 以上：曲线趋平
+
+> **读图提示**：EMA 滞后性使谷底位置偏右，Steepest 法指向 `1e-3` 附近。
+
+第二次 LR Finder 已经证明当前学习率策略（`1e-3`）位于有效收敛区间内。但训练仍然失败——模型长期停留在约 123 的 Loss 平台附近，**说明问题已经不是学习率**。
+
+#### 第三次调整：从学习率问题转向损失函数排查
+
+LR Finder 给出了收敛区间，但正式训练依然失败。进一步分析训练日志与 Loss 实现后，定位到三个问题。
+
+##### 1. 阶跃式 Warmup 的优化冲击
+
+最初的 Warmup 并非真正意义上的 Warmup。训练前 10 个 Epoch 使用 `1e-4`，随后直接跳变到 `1e-3`。这种非连续的学习率变化会将参数更新步长瞬间放大 10 倍，破坏刚刚建立的梯度方向。
+
+最终改为线性 Warmup：
+
+```python
+def get_lr(epoch):
+    if epoch <= 10:
+        start_lr = 1e-4
+        end_lr = 1e-3
+        return start_lr + (end_lr - start_lr) * (epoch - 1) / 10
+    elif epoch <= 125:
+        return 1e-3
+    elif epoch <= 155:
+        return 3e-4
+    else:
+        return 1e-4
+```
+
+学习率从离散跳变变为连续增长，更符合 Warmup 的设计初衷。
+
+##### 2. No-Object Mask 的责任分配漏洞
+
+重新审查 YOLOv1 Loss 实现时，发现了一个极其隐蔽的逻辑漏洞。
+
+YOLOv1 的设计要求：Responsible Box 学习目标，Non-Responsible Box 学习置信度趋近于 0。但原实现中，部分非负责框没有正确参与 `noobj_conf_loss` 的计算。
+
+修复后采用显式布尔逻辑：
+
+```python
+bbox1_noobj_mask = noobj_mask | bbox2_responsible
+bbox2_noobj_mask = noobj_mask | bbox1_responsible
+
+bbox1_noobj_conf_loss = torch.sum(
+    bbox1_noobj_mask.float() * bbox1_pred[..., 4] ** 2
+)
+bbox2_noobj_conf_loss = torch.sum(
+    bbox2_noobj_mask.float() * bbox2_pred[..., 4] ** 2
+)
+noobj_conf_loss = bbox1_noobj_conf_loss + bbox2_noobj_conf_loss
+```
+
+这样无论是背景网格还是未被选中的预测框，都能获得正确的监督信号，符合 YOLOv1 原论文的责任分配机制。
+
+##### 3. Loss 量级与梯度裁剪的耦合问题
+
+各项损失分解如下：
+
+| 损失项 | 数值 |
+| :--- | :--- |
+| coord loss | ~75 |
+| obj loss | ~30 |
+| noobj loss | ~6 |
+| class loss | ~45 |
+| **total loss** | **~156** |
+
+所有误差项采用 `torch.sum()` 聚合，Loss 会随 Batch Size 线性增长。与此同时训练启用了 `clip_grad_norm_(max_norm=10.0)`，导致大量梯度在反向传播阶段被强制截断——模型表面上使用 `1e-3` 学习率，但实际有效更新步长远低于设定值。
+
+最终修改：
+
+```python
+# Loss 按 Batch Size 归一化
+return total_loss / predictions.shape[0]
+```
+
+同时将梯度裁剪阈值调整为 `max_norm=50.0`，恢复合理的梯度动态范围。
+
+#### 第三次 LR Finder 结果
+
+修复 Loss 实现、Warmup 连续化与梯度尺度问题后，重新运行 LR Finder：
+
+![LR Finder (Third)](lr_finder.png)
+
+- `1e-6` 至 `1e-4`：学习率过小，Loss 几乎不下降
+- `1e-4` 至 `1e-2`：Loss 持续下降，有效收敛区间
+- `1e-3` 附近：曲线斜率最大，**最优学习率**（Steepest 法）
+- `1e-2` 以上：接近谷底，Loss 趋于平缓
+
+> **读图提示**：EMA 平滑曲线存在时序滞后性，真实信号的最优点比平滑曲线显示的略早。若仅看谷底位置（`1e-2` 附近），实际上已经过了最优区间——谷底处 Loss 已经趋于平缓，学习率已经偏大。正确的做法是取曲线最陡下降处（Steepest 法）或谷底向回退一个数量级（Valley 法），二者都指向 `1e-3` 附近，与第一次调整的直觉判断和第二次 LR Finder 的结论一致。
+
+#### 两条曲线的对比分析
+
+| 对比项 | 第二次 LR Finder | 第三次 LR Finder |
+| :--- | :--- | :--- |
+| Loss 实现 | 存在 noobj mask 漏洞、Loss 未归一化 | 已修复 |
+| Warmup | 阶跃式跳变 | 线性连续 |
+| 梯度裁剪 | max_norm=10.0（过度截断） | max_norm=50.0 |
+| 有效收敛区间 | `1e-4` ~ `1e-2` | `1e-4` ~ `1e-2` |
+| 最优学习率（Steepest 法） | `1e-3` 附近 | `1e-3` 附近 |
+
+两次 LR Finder 曲线的收敛区间高度一致，有效学习率范围几乎完全重合。这从实验上确认了一个关键结论：**在第二次与第三次调整之间，模型无法收敛的根本原因不是学习率策略，而是 Loss 实现漏洞与梯度裁剪过度截断导致的训练动力学问题**。修复底层实现后，`1e-3` 学习率依然位于有效收敛区间内，因此保留当前学习率策略不变。
 
 #### 最终学习率策略
 
 | 阶段 | Epoch | lr | 说明 |
 | :--- | :---- | :- | :--- |
-| Warmup | 1-10 | 1e-4 | 从甜区下限开始，稳定初始化 |
+| Warmup（线性） | 1-10 | 1e-4 → 1e-3 | 连续增长，避免阶跃冲击 |
 | 主干训练 | 11-125 | 1e-3 | 甜区中心，持续收敛 |
 | 精细收敛 | 126-155 | 3e-4 | 缩小步长，逼近极值 |
 | 微调 | 156+ | 1e-4 | 最终精调 |
@@ -170,7 +279,7 @@ EMA 本身存在一个固有的系统性局限：过往所有时刻的 loss 都�
 - 数据集：VOC2007（train+val 共 5011 张）
 - Batch size：16，优化器：SGD（momentum=0.9，decay=0.0005）
 - lr schedule：warmup(1e-4) → 1e-3 → 3e-4 → 1e-4，共 175 epochs
-- 梯度裁剪：max_norm=10.0
+- 梯度裁剪：max_norm=50.0（修复后，此前 max_norm=10.0 与未归一化的 Loss 耦合导致梯度过度截断）
 
 计划记录指标：
 
