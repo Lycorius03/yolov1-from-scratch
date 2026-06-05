@@ -77,4 +77,4 @@ class YoloLoss(nn.Module):
     #total Loss
     total_loss = coord_loss + obj_conf_loss + noobj_conf_loss +class_loss
 
-    return total_loss / predictions.size(0)
+    return total_loss / predictions.shape[0]
