@@ -16,7 +16,9 @@ from loss.yolo_loss import YoloLoss
 #学习率
 def get_lr(epoch):
   if epoch <= 10:
-    return 1e-4      
+    start_lr = 1e-4
+    end_lr = 1e-3
+    return start_lr + (end_lr - start_lr) * (epoch - 1) / 10    
   elif epoch <= 125:
     return 1e-3      
   elif epoch <= 155:
@@ -42,7 +44,7 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, batch_log_file):
     predictions = model(images)
     loss = loss_fn(predictions, targets)
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=50.0)
     optimizer.step()
     
     total_loss += loss.item()

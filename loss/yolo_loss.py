@@ -63,7 +63,13 @@ class YoloLoss(nn.Module):
     obj_conf_loss = torch.sum((obj_conf_pred - obj_mask.float()) ** 2)
 
     #noobj confidence Loss
-    noobj_conf_loss = self.lambda_noobj * torch.sum(noobj_mask.unsqueeze(-1).float() * torch.stack([bbox1_pred[..., 4], bbox2_pred[..., 4]], dim=-1) ** 2)
+    bbox1_noobj_mask = noobj_mask | bbox2_responsible
+    bbox2_noobj_mask = noobj_mask | bbox1_responsible
+
+    bbox1_noobj_conf_loss = torch.sum(bbox1_noobj_mask.float() * bbox1_pred[..., 4] ** 2)
+    bbox2_noobj_conf_loss = torch.sum(bbox2_noobj_mask.float() * bbox2_pred[..., 4] ** 2)
+
+    noobj_conf_loss = bbox1_noobj_conf_loss + bbox2_noobj_conf_loss
      
     #class Loss
     class_loss = torch.sum(obj_mask.unsqueeze(-1).float() * (class_pred - class_target) ** 2)
@@ -71,4 +77,4 @@ class YoloLoss(nn.Module):
     #total Loss
     total_loss = coord_loss + obj_conf_loss + noobj_conf_loss +class_loss
 
-    return total_loss
+    return total_loss / predictions.size(0)
