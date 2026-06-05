@@ -195,5 +195,4 @@ if __name__ == "__main__":
       'train_loss': train_loss,
       'val_loss': val_loss,
     }, os.path.join(log_dir, "checkpoint.pth"))
-      
-    print(f"模型已保存 (val_loss:{val_loss:.4f})")
+      print(f"模型已保存 (val_loss:{val_loss:.4f})")
