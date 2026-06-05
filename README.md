@@ -55,8 +55,8 @@
 | 2 | 🧪 数据加载单元测试 | ✅ 完成 | 独立测试文件，验证 Bounding Box 与标签正确性 |
 | 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积 + 2 层全连接检测头架构完整搭建 |
 | 4 | 📉 前向传播与 Loss 函数 | ✅ 完成 | `forward` 输出严格对齐 `(batch_size, 1470)`；Loss 完整实现（坐标/置信度/分类三分项 + IoU 工具）并已通过 Sanity Test |
-| 5 | 🔁 训练循环 + 可视化 | 🔄 进行中 | `train.py` + `config.py` + `tools/train_utils.py` |
-| 6 | 🔍 推理与 NMS | ⏳ 待开始 | `detect.py` + `utils/nms.py` + `utils/visualize.py` |
+| 5 | 🔁 训练循环 + 可视化 | ✅ 完成 | `train.py` + `utils/lr_finder.py` + LR Finder 自动调优 |
+| 6 | 🔍 推理与 NMS + mAP 评估 | 🔄 进行中 | `utils/nms.py` + `utils/map.py` |
 | 7 | 🎥 视频目标追踪 (SORT) | ⏳ 待开始 | `track.py`，基于 SORT 或简单 IoU 匹配 |
 
 ---
@@ -114,16 +114,70 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 ---
 
+### 学习率调优：从梯度爆炸到 LR Finder
+
+#### 问题发现
+
+原论文的训练基于 ImageNet 预训练权重，分段阶梯学习率为 `1e-3 → 1e-2 → 1e-3 → 1e-4`，共 135 个 epoch。本项目从零随机初始化，直接照搬这套 schedule 后出现训练失稳：loss 在 125 附近陷入平台期，每个 epoch 内 batch loss 剧烈震荡，出现梯度爆炸。
+
+#### 第一次调整（经验调参）
+
+将 warmup 阶段延长至 10 轮（保持 `1e-3`），第二阶梯学习率折半至 `5e-3`。结果：前 10 轮正常，第 11 轮 lr 跳升后 train_loss 从 124 反弹至 128，之后卡死在 126 平台，val_loss 同步卡在 124，两者同时停滞——排除过拟合，确认是学习率过大导致的震荡平台。等第二阶梯结束、lr 回落到 `1e-3` 后，loss 重新开始正常下降，震荡幅度也明显收窄。
+
+这说明 `1e-3` 很可能就是这个模型的最优主干训练学习率，但凭直觉判断没有说服力，需要实验依据。
+
+#### 引入 LR Finder
+
+了解到 Leslie Smith 提出的 Learning Rate Range Test 后，实现了 `utils/lr_finder.py`，通过指数级扫描 lr 区间，系统化定位最优学习率，而不是靠猜。
+
+初版参数 `start_lr=1e-7, end_lr=1, num_iter=100`，曲线在 loss 轴上剧烈震荡，趋势不明显，且在 lr=1 处出现断崖式爆炸。调整为 `start_lr=1e-6, end_lr=1e-1, num_iter=len(loader)`（即 314 次迭代）后好很多，但单 batch loss 的随机噪声仍然很强，频繁出现尖峰毛刺，难以精确定位拐点。
+
+#### 引入 EMA + 偏差修正
+
+在 LR Finder 中加入指数移动平均（EMA）对 loss 曲线做平滑处理，同时引入偏差修正：
+
+$$\hat{v}_t = \frac{v_t}{1 - \beta^t}$$
+
+偏差修正的必要性：初始 $v_0 = 0$，前几轮迭代的估计值天然偏低，修正后曲线前段才真实可信。
+
+EMA 本身存在一个固有的系统性局限：过往所有时刻的 loss 都参与当前值的计算，旧观测持续残留权重，新 loss 的突变需要多轮迭代才能逐渐冲淡历史影响，曲线永远滞后于真实信号。调整衰减系数 β 可以缓解滞后，但平滑度和响应速度是数学上互斥的，无法同时最优，只能取一个合适的折中值。读图时需配合最陡处法（Steepest）或谷底倒退法（Valley）人工判断最优区间。
+
+#### LR Finder 结果
+
+![LR Finder](lr_finder.png)
+
+- `1e-6` 至 `1e-4`：loss 平缓，lr 过小，学习几乎停滞
+- `1e-4` 至 `1e-2`：loss 持续下降，**最优区间**
+- `1e-2` 以上：曲线趋平
+
+#### 最终学习率策略
+
+| 阶段 | Epoch | lr | 说明 |
+| :--- | :---- | :- | :--- |
+| Warmup | 1-10 | 1e-4 | 从甜区下限开始，稳定初始化 |
+| 主干训练 | 11-125 | 1e-3 | 甜区中心，持续收敛 |
+| 精细收敛 | 126-155 | 3e-4 | 缩小步长，逼近极值 |
+| 微调 | 156+ | 1e-4 | 最终精调 |
+
+---
+
 ## 实验结果
 
-> 训练进行中，结果持续更新。
+> 训练进行中（基于修正后的 lr schedule 重新训练）
+
+### 训练配置
+
+- 数据集：VOC2007（train+val 共 5011 张）
+- Batch size：16，优化器：SGD（momentum=0.9，decay=0.0005）
+- lr schedule：warmup(1e-4) → 1e-3 → 3e-4 → 1e-4，共 175 epochs
+- 梯度裁剪：max_norm=10.0
 
 计划记录指标：
 
 - Train/Val Loss 曲线（每 epoch）
-- mAP@0.5 曲线（每 5 epoch 评估一次）
-- 各类别 AP 对比（训练完成后）
-- 定性检测效果图
+- Batch 级别 loss 曲线（每 20 个 batch）
+- mAP@0.5 曲线
+- 各类别 AP 对比
 
 ---
 
@@ -131,7 +185,7 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 ```text
 yolov1-from-scratch/
-├── data/                          # 数据集（.gitignore 忽略）
+├── data/                          # 数据集（gitignore 忽略）
 │   └── VOCdevkit/
 │       └── VOC2007/
 │           ├── Annotations/      # XML 标注文件
@@ -139,22 +193,35 @@ yolov1-from-scratch/
 │           └── JPEGImages/       # 原始图像
 │
 ├── models/
+│   ├── __init__.py
 │   └── yolov1.py                 # YOLOv1 模型定义
 │
 ├── dataset/
+│   ├── __init__.py
 │   └── voc_dataset.py            # VOCDataset 数据加载器
 │
 ├── loss/
+│   ├── __init__.py
 │   └── yolo_loss.py              # YOLOv1 多任务联合损失函数
 │
 ├── utils/
+│   ├── __init__.py
 │   ├── voc_dataset_test.py       # 数据加载单元测试
 │   ├── loss_test.py              # Loss Sanity Test
-│   └── iou.py                    # IoU 计算工具
+│   ├── iou.py                    # IoU 计算工具
+│   ├── lr_finder.py              # LR Finder 学习率范围测试
+│   ├── nms.py                    # NMS 后处理
+│   └── map.py                    # mAP 评估
 │
+├── train.py                      # 训练入口脚本
+├── run_lr_finder.py              # LR Finder 运行脚本
 ├── test_model.py                 # 模型前向传播测试（Smoke Test）
+├── lr_finder.png                 # LR Finder 结果图
+├── runs/                         # 训练输出（gitignore 忽略，含 checkpoint 和训练日志）
 ├── requirements.txt
 ├── README.md
+├── LICENSE
+├── .gitattributes
 └── .gitignore
 ```
 
@@ -214,13 +281,10 @@ python test_model.py
 
 ---
 
-## 后续计划 (Phase 5 及以后)
+## 后续计划 (Phase 6 及以后)
 
-**Phase 5 — 训练流程**
-搭建完整训练循环，含学习率分段衰减策略、模型权重 checkpoint 保存、训练过程 loss 曲线记录与可视化（TensorBoard 或 matplotlib）。
-
-**Phase 6 — 推理与 NMS**
-实现 NMS（Non-Maximum Suppression）后处理，在原图上绘制检测框与置信度，支持单张图像与批量图像推理。
+**Phase 6 — 推理与 NMS + mAP 评估**
+实现 NMS（Non-Maximum Suppression）后处理，在原图上绘制检测框与置信度，支持单张图像与批量图像推理；基于 mAP 指标客观评估检测精度。
 
 **Phase 7 — 视频目标追踪 (SORT)**
 在帧级检测结果的基础上，实现基于 IoU 匹配的简单多目标追踪（Simple SORT），为每个目标分配稳定的轨迹 ID，输出追踪视频。
@@ -237,4 +301,4 @@ python test_model.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-01
+持续更新中 · Last updated: 2026-06-05

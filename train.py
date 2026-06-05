@@ -15,21 +15,21 @@ from loss.yolo_loss import YoloLoss
 
 #学习率
 def get_lr(epoch):
-  if epoch == 1:
-    return 1e-3
-  elif epoch <= 75:
-    return 1e-2
-  elif epoch <= 105:
-    return 1e-3
+  if epoch <= 10:
+    return 1e-4      
+  elif epoch <= 125:
+    return 1e-3      
+  elif epoch <= 155:
+    return 3e-4     
   else:
-    return 1e-4
+    return 1e-4 
   
 def set_lr(optimizer, lr):
   for param_group in optimizer.param_groups:
     param_group['lr'] = lr
 
 #Train
-def train_one_epoch(model, loader, optimizer, loss_fn, device):
+def train_one_epoch(model, loader, optimizer, loss_fn, device, batch_log_file):
   model.train()
   total_loss = 0.0
 
@@ -50,7 +50,10 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device):
     #Log loss
     if batch_idx % 20 == 0:
       print(f"batch {batch_idx}/{len(loader)}, loss: {loss.item():.4f}")
-  
+      with open(batch_log_file, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([epoch, batch_idx, loss.item()])
+
   return total_loss / len(loader) 
 
 #Validation
@@ -75,7 +78,7 @@ if __name__ == "__main__":
   B = 2
   C = 20
   BATCH_SIZE = 16
-  NUM_EPOCHS = 135
+  NUM_EPOCHS = 175
   LEARNING_RATE = 1e-3
   DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -130,7 +133,7 @@ if __name__ == "__main__":
     model.parameters(),
     lr=LEARNING_RATE,
     momentum=0.9,
-    weight_decay=0.0005
+    weight_decay=5e-4
   )
 
   #数据记录系统
@@ -143,12 +146,27 @@ if __name__ == "__main__":
     writer = csv.writer(f)
     writer.writerow(["epoch","train_loss","val_loss","lr"])
 
+  batch_log_file = os.path.join(log_dir, "batch_log.csv")
+  with open(batch_log_file, 'w', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow(["epoch", "batch", "loss"])
+
   print(f"训练日志保存至:{log_file}")
   # NUM_EPOCHS = 10
 
   best_val_loss = float('inf')
 
-  for epoch in range(1, NUM_EPOCHS + 1):
+  RESUME_PATH = None  
+  start_epoch = 1
+
+  if RESUME_PATH and os.path.exists(RESUME_PATH):
+    checkpoint = torch.load(RESUME_PATH)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    start_epoch = checkpoint['epoch'] + 1
+    print(f"从epoch {start_epoch}继续训练")
+
+  for epoch in range(start_epoch, NUM_EPOCHS + 1):
     #更新学习率
     lr = get_lr(epoch)
     set_lr(optimizer, lr)
@@ -156,7 +174,7 @@ if __name__ == "__main__":
     print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={lr}")
 
     #训练和验证
-    train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE)
+    train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE, batch_log_file)
     val_loss = val_one_epoch(model, val_loader, loss_fn, DEVICE)
 
     print(f"train_loss: {train_loss:.4f} val_loss: {val_loss:.4f}")
@@ -170,4 +188,12 @@ if __name__ == "__main__":
     if val_loss < best_val_loss:
       best_val_loss = val_loss
       torch.save(model.state_dict(), os.path.join(log_dir, "best_model.pth"))
-      print(f"模型已保存 (val_loss:{val_loss:.4f})")
+      torch.save({
+      'epoch': epoch,
+      'model_state_dict': model.state_dict(),
+      'optimizer_state_dict': optimizer.state_dict(),
+      'train_loss': train_loss,
+      'val_loss': val_loss,
+    }, os.path.join(log_dir, "checkpoint.pth"))
+      
+    print(f"模型已保存 (val_loss:{val_loss:.4f})")
