@@ -9,7 +9,10 @@ if __name__ == "__main__":
     ])
   
   dataset = VOCDataset(
-    root_dir="data/VOCdevkit/VOC2007",
+        root_dirs=[
+        "data/VOCdevkit/VOC2007",
+        "data/VOCdevkit/VOC2012"
+    ],
     transform=test_transform,
     split='train'
   )

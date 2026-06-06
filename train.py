@@ -17,14 +17,14 @@ from loss.yolo_loss import YoloLoss
 def get_lr(epoch):
   if epoch <= 10:
     start_lr = 1e-4
-    end_lr = 1e-3
-    return start_lr + (end_lr - start_lr) * (epoch - 1) / 10    
+    end_lr = 5e-4
+    return start_lr + (end_lr - start_lr) * (epoch - 1) / 10
   elif epoch <= 125:
-    return 1e-3      
+      return 5e-4
   elif epoch <= 155:
-    return 3e-4     
+      return 1.5e-4
   else:
-    return 1e-4 
+      return 5e-5
   
 def set_lr(optimizer, lr):
   for param_group in optimizer.param_groups:
@@ -95,14 +95,20 @@ if __name__ == "__main__":
 
   #训练集
   train_dataset = VOCDataset(
-    root_dir="data/VOCdevkit/VOC2007",
+    root_dirs=[
+        "data/VOCdevkit/VOC2007",
+        "data/VOCdevkit/VOC2012"
+    ],
     transform=transform,
     split='train'
   )
 
   #验证集
   val_dataset = VOCDataset(
-    root_dir="data/VOCdevkit/VOC2007",
+        root_dirs=[
+        "data/VOCdevkit/VOC2007",
+        "data/VOCdevkit/VOC2012"
+    ],
     transform=transforms.Compose([
       transforms.Resize((448, 448)),
       transforms.ToTensor(),

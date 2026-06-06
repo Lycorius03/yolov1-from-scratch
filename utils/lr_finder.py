@@ -64,11 +64,11 @@ def lr_finder(model, loader, optimizer, loss_fn, DEVICE, start_lr=1e-6, end_lr=1
       print(f"老大，Loss值炸了，快停下喵(っ °Д °;)っ！提前停止于iter{i}")
       break
 
-    #恢复原始状态
+  #恢复原始状态
   model.load_state_dict(model_state)
   optimizer.load_state_dict(optimizer_state)
 
-    #画图
+  #画图
   min_loss = min(losses)
   plt.figure(figsize=(10, 6))
   plt.plot(lrs, losses)

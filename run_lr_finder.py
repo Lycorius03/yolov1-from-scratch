@@ -17,7 +17,10 @@ if __name__ == "__main__":
     ])
 
     dataset = VOCDataset(
-        root_dir="data/VOCdevkit/VOC2007",
+        root_dirs=[
+        "data/VOCdevkit/VOC2007",
+        "data/VOCdevkit/VOC2012"
+    ],
         transform=transform,
         split='train'
     )
@@ -28,7 +31,8 @@ if __name__ == "__main__":
     loss_fn = YoloLoss(S=7, B=2, C=20).to(DEVICE)
     optimizer = torch.optim.SGD(
         model.parameters(), 
-        lr=1e-7, momentum=0.9, 
+        lr=1e-7, 
+        momentum=0.9, 
         weight_decay=0.0005
         )
 

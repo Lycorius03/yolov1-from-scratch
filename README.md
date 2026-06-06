@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue?style=flat-square&logo=python)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-orange?style=flat-square&logo=pytorch)
-![Dataset](https://img.shields.io/badge/Dataset-Pascal%20VOC%202007%20%26%202012-green?style=flat-square)
+![Dataset](https://img.shields.io/badge/Dataset-Pascal%20VOC%202007%20%2B%202012-green?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-In%20Progress-yellow?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
 
@@ -51,6 +51,7 @@
 | :---: | :--- | :---: | :--- |
 | 1 | 📁 项目结构搭建 | ✅ 完成 | 目录规范、模块划分、代码风格统一 |
 | 1 | 📦 Pascal VOC2007 数据准备 | ✅ 完成 | 数据集下载、目录组织、路径配置 |
+| 1 | 📦 Pascal VOC2012 数据准备 | ✅ 完成 | 引入 VOC2012 与 VOC2007 联合训练，数据量提升 3.3 倍 |
 | 2 | 🗂️ `VOCDataset` 数据加载器 | ✅ 完成 | XML 解析、类别映射、transform 接口 |
 | 2 | 🧪 数据加载单元测试 | ✅ 完成 | 独立测试文件，验证 Bounding Box 与标签正确性 |
 | 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积 + 2 层全连接检测头架构完整搭建 |
@@ -238,14 +239,16 @@ return total_loss / predictions.shape[0]
 
 修复 Loss 实现、Warmup 连续化与梯度尺度问题后，重新运行 LR Finder：
 
-![LR Finder (Third)](lr_finder.png)
+![LR Finder (Third)](lr_finder_defect1.png)
 
 - `1e-6` 至 `1e-4`：学习率过小，Loss 几乎不下降
 - `1e-4` 至 `1e-2`：Loss 持续下降，有效收敛区间
 - `1e-3` 附近：曲线斜率最大，**最优学习率**（Steepest 法）
 - `1e-2` 以上：接近谷底，Loss 趋于平缓
 
-> **读图提示**：EMA 平滑曲线存在时序滞后性，真实信号的最优点比平滑曲线显示的略早。若仅看谷底位置（`1e-2` 附近），实际上已经过了最优区间——谷底处 Loss 已经趋于平缓，学习率已经偏大。正确的做法是取曲线最陡下降处（Steepest 法）或谷底向回退一个数量级（Valley 法），二者都指向 `1e-3` 附近，与第一次调整的直觉判断和第二次 LR Finder 的结论一致。
+> **读图提示**：EMA 平滑曲线存在时序滞后性，真实信号的最优点比平滑曲线显示的略早。若仅看谷底位置（`1e-2` 附近），实际上已经过了最优区间——谷底处 Loss 已经趋于平缓，学习率已经偏大。正确的做法是取曲线最陡下降处（Steepest 法）或谷底向回退一个数量级（Valley 法），二者都指向 `1e-3` 附近。
+>
+> 需要注意的是：LR Finder 仅能判断"哪个学习率区间有效"，无法回答"有效区间内的学习率是否足以让模型充分收敛"。第三次 LR Finder 确认了 `1e-3` 位于有效区间内，但正式训练仍然卡在 ~7.9 的平台期——**LR Finder 结论正确，但仅凭它并不能保证收敛**。
 
 #### 两条曲线的对比分析
 
@@ -259,7 +262,9 @@ return total_loss / predictions.shape[0]
 
 两次 LR Finder 曲线的收敛区间高度一致，有效学习率范围几乎完全重合。这从实验上确认了一个关键结论：**在第二次与第三次调整之间，模型无法收敛的根本原因不是学习率策略，而是 Loss 实现漏洞与梯度裁剪过度截断导致的训练动力学问题**。修复底层实现后，`1e-3` 学习率依然位于有效收敛区间内，因此保留当前学习率策略不变。
 
-#### 最终学习率策略
+> 但需要明确的是：第三次调整修复了 Loss 实现中的问题，使 Loss 量级回归合理范围，**并不等于收敛问题已被解决**。修复后的正式训练仍然长期停留在 ~7.9 的平台期，无法继续深入收敛。这说明还有更深层的因素在限制模型的学习能力。
+
+#### 第三次学习率策略
 
 | 阶段 | Epoch | lr | 说明 |
 | :--- | :---- | :- | :--- |
@@ -268,18 +273,92 @@ return total_loss / predictions.shape[0]
 | 精细收敛 | 126-155 | 3e-4 | 缩小步长，逼近极值 |
 | 微调 | 156+ | 1e-4 | 最终精调 |
 
+#### 第四次调整：引入 VOC2012，从数据量维度突破瓶颈
+
+##### 1. 为什么怀疑是数据量不足？
+
+三次训练的调整轨迹呈现出一条清晰的线索——**模型有能力学习，但始终无法继续深入收敛**。
+
+第一次与第二次训练（仅使用 VOC2007）中，Loss 的下降轨迹呈现出高度相似的模式：前几十个 epoch 快速下降后，训练 Loss 稳定在约 124 左右、验证 Loss 稳定在约 122 左右，之后便不再有明显进展。第三次修复了 Loss 归一化问题后，Loss 量级下降到 7.9 / 7.7 水平，但**平台期现象依然存在**。
+
+从量纲角度统一对比三次结果：前两次使用 `torch.sum()` 聚合 Loss（未除以 Batch Size），第三次改为 `sum() / batch_size` 归一化。若将前两次的 Loss 也按 Batch Size = 16 进行归一化折算，其稳定平台约为 **7.6–7.8**——与第三次的 7.9 平台**惊人地接近**。这说明三次训练在同一个 Loss 量级上遇到了几乎相同的收敛天花板。
+
+同时观察 batch 级别的 Loss 波动：第三次训练中，单个 batch 的 Loss 在 5–15 之间剧烈跳动，epoch 级别的平均 Loss 则被这种高方差平滑到一条缓慢下降后停滞的曲线。这种"宏观停滞 + 微观高噪"的模式是**数据不足时的经典信号**——模型在有限样本上反复记忆后，无法通过更多样化的样本来获得进一步的泛化梯度。
+
+VOC2007 的 trainval 集仅有约 5011 张图像，对于一个 24 层卷积 + 2 层全连接、参数量超过 2.7 亿的检测网络而言，每个参数能"看到"的有效样本非常有限。数据量的天花板一旦触达，再精细的学习率调优也无法突破——这就是第四次调整从"调参"转向"扩数据"的根本原因。
+
+##### 2. 数据扩展方案
+
+引入 Pascal VOC2012 数据集，与 VOC2007 合并使用：
+
+- **VOC2007 trainval**：约 5011 张
+- **VOC2012 trainval**：约 11540 张
+- **合并后训练集**：约 **16551 张**，数据量提升 **3.3 倍**
+
+修改涉及三个核心文件：
+
+- `dataset/voc_dataset.py`：`VOCDataset` 的 `__init__` 接收 `root_dirs` 列表参数，自动聚合多目录数据
+- `utils/voc_dataset_test.py`：测试脚本同步更新多目录配置
+- `train.py`：训练集与验证集均指向 VOC2007 + VOC2012 联合路径
+
+##### 3. 第四次 LR Finder 结果
+
+加入新数据集后重新运行 LR Finder，得到以下曲线：
+
+![LR Finder (Fourth)](lr_finder.png)
+
+与第三次 LR Finder 的曲线形态高度相似，但在细节上有所不同：
+
+- `1e-6` 至 `1e-4`：学习率过小，Loss 几乎不下降
+- `1e-4` 至 `5e-4`：Loss 快速下降，最陡斜率集中区域（**Steepest 法 → 最优学习率**）
+- `1e-3` 附近：曲线已明显趋平，Loss 接近谷底（Valley 法可参考此位置）
+- `1e-2` 以上：Loss 趋于平缓
+
+> **读图提示**：与第三次 LR Finder 相比，第四次的 Loss 谷值更低（约 8.0 vs 约 8.5），说明在更大的数据集上、相同的归一化 Loss 实现下，模型有更大的收敛潜力。但需特别注意：EMA 平滑曲线存在时序滞后性，Steepest 法指向的最陡下降段（`5e-4` 附近）比谷底位置更靠左——若按 Valley 法从谷底（`1e-2` 附近）向回退，反而容易落在曲线已趋平的区域，因此此处应以最陡处为主。
+
+##### 4. 更新后的学习率策略
+
+基于第四次 LR Finder 的结果，对分段阶梯学习率做微调：
+
+```python
+def get_lr(epoch):
+  if epoch <= 10:
+    start_lr = 1e-4
+    end_lr = 5e-4
+    return start_lr + (end_lr - start_lr) * (epoch - 1) / 10
+  elif epoch <= 125:
+      return 5e-4
+  elif epoch <= 155:
+      return 1.5e-4
+  else:
+      return 5e-5
+```
+
+主干训练学习率从 `1e-3` 调整为 `5e-4`——更靠近 LR Finder 曲线最陡处（约 `8e-4`）但略保守，在更大的数据集上追求更稳健的收敛节奏。
+
 ---
 
 ## 实验结果
 
-> 训练进行中（基于修正后的 lr schedule 重新训练）
+> 训练进行中（基于 VOC2007 + VOC2012 联合训练，第四次调整后的 lr schedule 重新训练）
 
 ### 训练配置
 
-- 数据集：VOC2007（train+val 共 5011 张）
-- Batch size：16，优化器：SGD（momentum=0.9，decay=0.0005）
-- lr schedule：warmup(1e-4) → 1e-3 → 3e-4 → 1e-4，共 175 epochs
-- 梯度裁剪：max_norm=50.0（修复后，此前 max_norm=10.0 与未归一化的 Loss 耦合导致梯度过度截断）
+- 数据集：VOC2007 + VOC2012（train+val 共约 16551 张）
+- Batch size：16，优化器：SGD（momentum=0.9，weight_decay=5e-4）
+- lr schedule：warmup(1e-4→5e-4) → 5e-4 → 1.5e-4 → 5e-5，共 175 epochs
+- 梯度裁剪：max_norm=50.0
+
+### 历史训练记录
+
+| 轮次 | 数据集 | Loss 归一化 | 平台期 train / val Loss | 根因分析 |
+| :--- | :--- | :--- | :--- | :--- |
+| 第一次 | VOC2007 | `sum()`（未除 batch_size） | ~124 / ~122 （÷16 ≈ 7.8 / 7.6） | 阶跃式 warmup + lr 过大 |
+| 第二次 | VOC2007 | `sum()`（未除 batch_size） | ~124 / ~122 （÷16 ≈ 7.8 / 7.6） | lr 策略已正确，但 Loss 实现有漏洞 |
+| 第三次 | VOC2007 | `sum()/batch_size` | ~7.9 / ~7.7 | Loss 归一化修复，但数据量成为新瓶颈 |
+| 第四次 | VOC2007 + VOC2012 | `sum()/batch_size` | 训练中 | 数据量提升 3.3 倍，期待突破收敛天花板 |
+
+> 注：表中的 Loss 量级差异仅来自聚合方式不同。若将第一次、第二次的 `sum()` 结果除以 batch_size（16），或将第三次的归一化结果乘回 batch_size，三者的平台期 Loss 会落在同一个量级（约 120–126 / ~7.6–7.8）。这一数值上的高度一致，排除了"学习率不同导致不同平台"的可能性，进一步指向数据量不足的假设。
 
 计划记录指标：
 
@@ -296,10 +375,14 @@ return total_loss / predictions.shape[0]
 yolov1-from-scratch/
 ├── data/                          # 数据集（gitignore 忽略）
 │   └── VOCdevkit/
-│       └── VOC2007/
-│           ├── Annotations/      # XML 标注文件
-│           ├── ImageSets/        # 训练/验证/测试集划分
-│           └── JPEGImages/       # 原始图像
+│       ├── VOC2007/
+│       │   ├── Annotations/      # XML 标注文件
+│       │   ├── ImageSets/        # 训练/验证/测试集划分
+│       │   └── JPEGImages/       # 原始图像
+│       └── VOC2012/
+│           ├── Annotations/
+│           ├── ImageSets/
+│           └── JPEGImages/
 │
 ├── models/
 │   ├── __init__.py
@@ -307,7 +390,7 @@ yolov1-from-scratch/
 │
 ├── dataset/
 │   ├── __init__.py
-│   └── voc_dataset.py            # VOCDataset 数据加载器
+│   └── voc_dataset.py            # VOCDataset 数据加载器（支持多数据集）
 │
 ├── loss/
 │   ├── __init__.py
@@ -366,10 +449,18 @@ matplotlib
 
 ### 3. 准备数据集
 
-从 [Pascal VOC 官网](http://host.robots.ox.ac.uk/pascal/VOC/) 下载 VOC2007 数据集，并按照以下结构放置：
+从 [Pascal VOC 官网](http://host.robots.ox.ac.uk/pascal/VOC/) 下载 VOC2007 和 VOC2012 数据集，并按照以下结构放置：
 
 ```text
-data/VOCdevkit/VOC2007/
+data/VOCdevkit/
+├── VOC2007/
+│   ├── Annotations/
+│   ├── ImageSets/
+│   └── JPEGImages/
+└── VOC2012/
+    ├── Annotations/
+    ├── ImageSets/
+    └── JPEGImages/
 ```
 
 ### 4. 测试数据加载器
@@ -410,4 +501,4 @@ python test_model.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-05
+持续更新中 · Last updated: 2026-06-06

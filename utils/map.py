@@ -2,14 +2,14 @@ import torch
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 
-def evaluate_map(model, loader, device, decode_fn, conf_threshold=0.4, iou_threshold=0.5):
+def evaluate_map(model, loader, DEVICE, decode_fn, conf_threshold=0.4, iou_threshold=0.5):
 
     model.eval()
     metric = MeanAveragePrecision(iou_thresholds=[iou_threshold])
 
     with torch.no_grad():
         for images, targets in loader:
-            images = images.to(device)
+            images = images.to(DEVICE)
             predictions = model(images)
 
             # 解码预测框

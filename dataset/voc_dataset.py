@@ -6,8 +6,10 @@ import torchvision.transforms as transforms
 from PIL import Image
 
 class VOCDataset(Dataset):
-  def __init__(self, root_dir, transform=None, split='train'):
-    self.root_dir = root_dir
+  def __init__(self, root_dirs, transform=None, split='train'):
+    if isinstance(root_dirs, str):
+      root_dirs = [root_dirs]
+    self.root_dirs = root_dirs
     self.transform = transform
     self.split = split
     self.class_names = [
@@ -18,10 +20,6 @@ class VOCDataset(Dataset):
     ]
     self.class_to_idx = {name: idx for idx, name in enumerate(self.class_names)}
 
-    # 获取图片数据文件夹和标注文件夹的地址
-    self.image_dir = os.path.join(root_dir, 'JPEGImages')
-    self.annotation_dir = os.path.join(root_dir, 'Annotations')
-
     # 获取图片数量
     self.image_ids = self._get_image_ids()
 
@@ -29,15 +27,17 @@ class VOCDataset(Dataset):
 
   #_get_image_ids()函数实现
   def _get_image_ids(self):
-    if self.split == 'train':
-      txt_flie = os.path.join(self.root_dir, 'ImageSets', 'Main', 'trainval.txt')
-    else:
-      txt_flie = os.path.join(self.root_dir, 'ImageSets', 'Main', 'val.txt')
+    all_ids = []
+    for root_dir in self.root_dirs:
+      if self.split == 'train':
+        txt_flie = os.path.join(root_dir, 'ImageSets', 'Main', 'trainval.txt')
+      else:
+        txt_flie = os.path.join(root_dir, 'ImageSets', 'Main', 'val.txt')
 
-    with open(txt_flie,'r') as f:
-      image_ids = [line.strip() for line in f.readlines()]
+      with open(txt_flie,'r') as f:
+        all_ids.extend([(root_dir, line.strip()) for line in f.readlines()])
 
-    return image_ids
+    return all_ids
   
   #返回给PyTorch DataLoader数据集大小     
   def __len__(self):
@@ -46,14 +46,14 @@ class VOCDataset(Dataset):
   #取用数据的函数实现
   def __getitem__(self, idx):
     """利用索引获取图片以及其标注"""
-    image_id = self.image_ids[idx]
+    root_dir, image_id = self.image_ids[idx]
     
     #将图片加载到内存
-    image_path = os.path.join(self.image_dir, f"{image_id}.jpg")
+    image_path = os.path.join(root_dir, 'JPEGImages', f"{image_id}.jpg")      
     image = Image.open(image_path).convert('RGB')
 
     #将标注文件加载到内存
-    annotation_path = os.path.join(self.annotation_dir, f"{image_id}.xml")
+    annotation_path = os.path.join(root_dir, 'Annotations', f"{image_id}.xml")
     boxes, labels = self._parse_annotation(annotation_path)
 
     #处理图片
