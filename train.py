@@ -17,22 +17,21 @@ from config import VOC2007_DIR, VOC2012_DIR, RUNS_DIR
 #学习率
 def get_lr(epoch):
   if epoch <= 10:
-    start_lr = 1e-4
-    end_lr = 5e-4
-    return start_lr + (end_lr - start_lr) * (epoch - 1) / 10
-  elif epoch <= 125:
+      start_lr = 1e-4 
+      end_lr = 5e-4 
+      return start_lr + (end_lr - start_lr) * (epoch - 1) / 10
+  elif epoch <= 80:
       return 5e-4
-  elif epoch <= 155:
+  elif epoch <= 130:
       return 1.5e-4
   else:
       return 5e-5
-  
 def set_lr(optimizer, lr):
   for param_group in optimizer.param_groups:
     param_group['lr'] = lr
 
 #Train
-def train_one_epoch(model, loader, optimizer, loss_fn, device, batch_log_file):
+def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch ,batch_log_file):
   model.train()
   total_loss = 0.0
 
@@ -183,7 +182,7 @@ if __name__ == "__main__":
     print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={lr}")
 
     #训练和验证
-    train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE, batch_log_file)
+    train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE, epoch ,batch_log_file)
     val_loss = val_one_epoch(model, val_loader, loss_fn, DEVICE)
 
     print(f"train_loss: {train_loss:.4f} val_loss: {val_loss:.4f}")
