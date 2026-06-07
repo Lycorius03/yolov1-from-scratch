@@ -1,9 +1,11 @@
-import os
 import xml.etree.ElementTree as ET
 import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 from PIL import Image
+from pathlib import Path
+
+from config import VOC2007_DIR, VOC2012_DIR
 
 class VOCDataset(Dataset):
   def __init__(self, root_dirs, transform=None, split='train'):
@@ -30,11 +32,11 @@ class VOCDataset(Dataset):
     all_ids = []
     for root_dir in self.root_dirs:
       if self.split == 'train':
-        txt_flie = os.path.join(root_dir, 'ImageSets', 'Main', 'trainval.txt')
+        txt_file = Path(root_dir) / 'ImageSets' / 'Main' / 'trainval.txt'
       else:
-        txt_flie = os.path.join(root_dir, 'ImageSets', 'Main', 'val.txt')
+        txt_file = Path(root_dir) / 'ImageSets' / 'Main' / 'val.txt'
 
-      with open(txt_flie,'r') as f:
+      with open(txt_file, 'r') as f:
         all_ids.extend([(root_dir, line.strip()) for line in f.readlines()])
 
     return all_ids
@@ -47,13 +49,13 @@ class VOCDataset(Dataset):
   def __getitem__(self, idx):
     """利用索引获取图片以及其标注"""
     root_dir, image_id = self.image_ids[idx]
-    
+
     #将图片加载到内存
-    image_path = os.path.join(root_dir, 'JPEGImages', f"{image_id}.jpg")      
+    image_path = Path(root_dir) / 'JPEGImages' / f"{image_id}.jpg"
     image = Image.open(image_path).convert('RGB')
 
     #将标注文件加载到内存
-    annotation_path = os.path.join(root_dir, 'Annotations', f"{image_id}.xml")
+    annotation_path = Path(root_dir) / 'Annotations' / f"{image_id}.xml"
     boxes, labels = self._parse_annotation(annotation_path)
 
     #处理图片

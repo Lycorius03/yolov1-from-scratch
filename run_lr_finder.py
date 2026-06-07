@@ -7,6 +7,7 @@ from dataset.voc_dataset import VOCDataset
 from models.yolov1 import YOLOv1
 from loss.yolo_loss import YoloLoss
 from utils.lr_finder import lr_finder
+from config import VOC2007_DIR, VOC2012_DIR
 
 if __name__ == "__main__":
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -18,8 +19,8 @@ if __name__ == "__main__":
 
     dataset = VOCDataset(
         root_dirs=[
-        "data/VOCdevkit/VOC2007",
-        "data/VOCdevkit/VOC2012"
+        str(VOC2007_DIR),
+        str(VOC2012_DIR)
     ],
         transform=transform,
         split='train'

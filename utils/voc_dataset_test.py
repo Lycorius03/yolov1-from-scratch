@@ -1,6 +1,7 @@
 import torch
 from torchvision import transforms
 from dataset.voc_dataset import VOCDataset
+from config import VOC2007_DIR, VOC2012_DIR
 
 if __name__ == "__main__":
   test_transform = transforms.Compose([
@@ -10,8 +11,8 @@ if __name__ == "__main__":
   
   dataset = VOCDataset(
         root_dirs=[
-        "data/VOCdevkit/VOC2007",
-        "data/VOCdevkit/VOC2012"
+        str(VOC2007_DIR),
+        str(VOC2012_DIR)
     ],
     transform=test_transform,
     split='train'

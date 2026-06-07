@@ -1,6 +1,9 @@
 import torch
 import matplotlib.pyplot as plt
 import copy
+from pathlib import Path
+
+from config import LOG_DIR
 
 def lr_finder(model, loader, optimizer, loss_fn, DEVICE, start_lr=1e-6, end_lr=1e-1, num_iter=300):
 
@@ -77,8 +80,10 @@ def lr_finder(model, loader, optimizer, loss_fn, DEVICE, start_lr=1e-6, end_lr=1
   plt.xlabel('Learning Rate (log scale)')
   plt.ylabel('Loss')
   plt.title('Learning Rate Range Test')
-  plt.savefig('lr_finder.png', dpi=150, bbox_inches='tight')
+  LOG_DIR.mkdir(parents=True, exist_ok=True)
+  save_path = LOG_DIR / "lr_finder.png"
+  plt.savefig(save_path, dpi=150, bbox_inches='tight')
   plt.show()
-  print("老大，图已保存为 lr_finder.png 了喵")
+  print(f"老大，图已保存为 {save_path} 了喵")
 
   return lrs, losses

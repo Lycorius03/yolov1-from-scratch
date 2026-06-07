@@ -408,6 +408,7 @@ yolov1-from-scratch/
 ├── train.py                      # 训练入口脚本
 ├── run_lr_finder.py              # LR Finder 运行脚本
 ├── test_model.py                 # 模型前向传播测试（Smoke Test）
+├── config.py                     # 统一路径配置（pathlib）
 ├── lr_finder.png                 # LR Finder 结果图
 ├── runs/                         # 训练输出（gitignore 忽略，含 checkpoint 和训练日志）
 ├── requirements.txt
@@ -435,6 +436,15 @@ cd yolov1-from-scratch
 ```bash
 pip install -r requirements.txt
 ```
+
+> **注意**：`requirements.txt` 中**不包含 PyTorch 及其相关依赖**（torch、torchvision 等）。这是为了防止 PyTorch 与云算力实例（如 AutoDL、Colab 等）预装环境发生 CUDA 版本冲突。请根据自身环境自行安装，推荐使用 CUDA 11.8 ~ 12.8 对应的 PyTorch 版本。安装示例：
+>
+> ```bash
+> # CUDA 11.8
+> pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+> # CUDA 12.1
+> pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+> ```
 
 主要依赖包括：
 
@@ -501,4 +511,4 @@ python test_model.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-06
+持续更新中 · Last updated: 2026-06-07

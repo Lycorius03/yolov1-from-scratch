@@ -2,13 +2,14 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-import os
 import csv
+from pathlib import Path
 from datetime import datetime
 
 from dataset.voc_dataset import VOCDataset
 from models.yolov1 import YOLOv1
 from loss.yolo_loss import YoloLoss
+from config import VOC2007_DIR, VOC2012_DIR, RUNS_DIR
 
 # torch.backends.cudnn.enabled = False
 
@@ -96,8 +97,8 @@ if __name__ == "__main__":
   #训练集
   train_dataset = VOCDataset(
     root_dirs=[
-        "data/VOCdevkit/VOC2007",
-        "data/VOCdevkit/VOC2012"
+        str(VOC2007_DIR),
+        str(VOC2012_DIR)
     ],
     transform=transform,
     split='train'
@@ -106,8 +107,8 @@ if __name__ == "__main__":
   #验证集
   val_dataset = VOCDataset(
         root_dirs=[
-        "data/VOCdevkit/VOC2007",
-        "data/VOCdevkit/VOC2012"
+        str(VOC2007_DIR),
+        str(VOC2012_DIR)
     ],
     transform=transforms.Compose([
       transforms.Resize((448, 448)),
@@ -146,15 +147,15 @@ if __name__ == "__main__":
 
   #数据记录系统
   timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-  log_dir = f"runs/{timestamp}"
-  os.makedirs(log_dir, exist_ok=True)
+  log_dir = RUNS_DIR / timestamp
+  log_dir.mkdir(parents=True, exist_ok=True)
 
-  log_file = os.path.join(log_dir, "training_log.csv")
+  log_file = log_dir / "training_log.csv"
   with open(log_file, 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(["epoch","train_loss","val_loss","lr"])
 
-  batch_log_file = os.path.join(log_dir, "batch_log.csv")
+  batch_log_file = log_dir / "batch_log.csv"
   with open(batch_log_file, 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(["epoch", "batch", "loss"])
@@ -164,10 +165,10 @@ if __name__ == "__main__":
 
   best_val_loss = float('inf')
 
-  RESUME_PATH = None  
+  RESUME_PATH = None
   start_epoch = 1
 
-  if RESUME_PATH and os.path.exists(RESUME_PATH):
+  if RESUME_PATH and Path(RESUME_PATH).exists():
     checkpoint = torch.load(RESUME_PATH)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -195,12 +196,12 @@ if __name__ == "__main__":
     #保存最优模型
     if val_loss < best_val_loss:
       best_val_loss = val_loss
-      torch.save(model.state_dict(), os.path.join(log_dir, "best_model.pth"))
+      torch.save(model.state_dict(), log_dir / "best_model.pth")
       torch.save({
       'epoch': epoch,
       'model_state_dict': model.state_dict(),
       'optimizer_state_dict': optimizer.state_dict(),
       'train_loss': train_loss,
       'val_loss': val_loss,
-    }, os.path.join(log_dir, "checkpoint.pth"))
+    }, log_dir / "checkpoint.pth")
       print(f"模型已保存 (val_loss:{val_loss:.4f})")
