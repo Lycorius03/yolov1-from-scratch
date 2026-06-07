@@ -80,7 +80,7 @@ if __name__ == "__main__":
   B = 2
   C = 20
   BATCH_SIZE = 16
-  NUM_EPOCHS = 175
+  NUM_EPOCHS = 150
   LEARNING_RATE = 1e-3
   DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 

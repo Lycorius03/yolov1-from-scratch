@@ -336,17 +336,45 @@ def get_lr(epoch):
 
 主干训练学习率从 `1e-3` 调整为 `5e-4`——更靠近 LR Finder 曲线最陡处（约 `8e-4`）但略保守，在更大的数据集上追求更稳健的收敛节奏。
 
+#### 第五次调整：引入跨系统运行能力，迁移至 AutoDL 云算力
+
+总 epoch 数调整为 150，最后的微调阶段（lr=5e-5）从第 131 轮持续到第 150 轮（共 20 轮）。
+
+##### 1. 为什么需要跨系统运行？
+
+本地硬件条件有限，GPU 算力不足以支撑 VOC2007+VOC2012 联合训练的高效迭代。为解决这一问题，项目迁移至 **AutoDL** 云平台进行训练——通过租用云端 GPU 实例，训练速度得到数量级提升，完整训练流程已在云端成功跑通。
+
+##### 2. 跨系统兼容性改造
+
+为确保代码在本地（Windows）和云端（Linux）之间无缝切换，做了以下适配：
+
+- **路径系统解耦**：所有路径配置统一收口到 `config.py`（基于 `pathlib`），不硬编码绝对路径。本地与云端只需修改 `config.py` 中 `DATA_DIR`、`VOC2007_DIR`、`VOC2012_DIR`、`RUNS_DIR` 的指向即可，无需改动训练逻辑。
+- **设备自适应**：`train.py` 中 `DEVICE = "cuda" if torch.cuda.is_available() else "cpu"` 保证代码在无 GPU 环境下不会报错。
+- **PyTorch 依赖排除**：`requirements.txt` 中不包含 PyTorch 及其相关包，避免本地与云端 CUDA 版本冲突。云端实例通常已预装对应 CUDA 版本的 PyTorch，只需 `pip install -r requirements.txt` 安装其余依赖即可直接运行。
+- **运行脚本标准化**：训练入口统一通过 `python train.py` 启动，LR Finder 通过 `python run_lr_finder.py` 启动，不依赖任何平台特定的启动方式。
+
+##### 3. 更新后的学习率策略
+
+| 阶段 | Epoch | lr | 说明 |
+| :--- | :---- | :- | :--- |
+| Warmup（线性） | 1-10 | 1e-4 → 5e-4 | 连续增长，避免阶跃冲击 |
+| 主干训练 | 11-80 | 5e-4 | 甜区中心，80 轮后 loss 平台 |
+| 精细收敛 | 81-130 | 1.5e-4 | 缩小步长，逼近极值 |
+| 微调 | 131-150 | 5e-5 | 最终精调 |
+
+总训练周期：150 epochs。
+
 ---
 
 ## 实验结果
 
-> 训练进行中（基于 VOC2007 + VOC2012 联合训练，第四次调整后的 lr schedule 重新训练）
+> 训练进行中（基于 VOC2007 + VOC2012 联合训练，第五次调整后的 lr schedule 重新训练，迁移至 AutoDL 云算力）
 
 ### 训练配置
 
 - 数据集：VOC2007 + VOC2012（train+val 共约 16551 张）
 - Batch size：16，优化器：SGD（momentum=0.9，weight_decay=5e-4）
-- lr schedule：warmup(1e-4→5e-4) → 5e-4 → 1.5e-4 → 5e-5，共 175 epochs
+- lr schedule：warmup(1e-4→5e-4) → 5e-4 → 1.5e-4 → 5e-5，共 150 epochs
 - 梯度裁剪：max_norm=50.0
 
 ### 历史训练记录
@@ -356,7 +384,8 @@ def get_lr(epoch):
 | 第一次 | VOC2007 | `sum()`（未除 batch_size） | ~124 / ~122 （÷16 ≈ 7.8 / 7.6） | 阶跃式 warmup + lr 过大 |
 | 第二次 | VOC2007 | `sum()`（未除 batch_size） | ~124 / ~122 （÷16 ≈ 7.8 / 7.6） | lr 策略已正确，但 Loss 实现有漏洞 |
 | 第三次 | VOC2007 | `sum()/batch_size` | ~7.9 / ~7.7 | Loss 归一化修复，但数据量成为新瓶颈 |
-| 第四次 | VOC2007 + VOC2012 | `sum()/batch_size` | 训练中 | 数据量提升 3.3 倍，期待突破收敛天花板 |
+| 第四次 | VOC2007 + VOC2012 | `sum()/batch_size` | ~7.30 / ~7.20（lr=5e-4 约 80 轮后平台） | 数据量提升 3.3 倍，lr 主干降至 5e-4 |
+| 第五次 | VOC2007 + VOC2012 | `sum()/batch_size` | 训练中 | lr 主干缩短至 80 轮，迁移 AutoDL 云算力，新增跨系统兼容 |
 
 > 注：表中的 Loss 量级差异仅来自聚合方式不同。若将第一次、第二次的 `sum()` 结果除以 batch_size（16），或将第三次的归一化结果乘回 batch_size，三者的平台期 Loss 会落在同一个量级（约 120–126 / ~7.6–7.8）。这一数值上的高度一致，排除了"学习率不同导致不同平台"的可能性，进一步指向数据量不足的假设。
 
@@ -405,13 +434,15 @@ yolov1-from-scratch/
 │   ├── nms.py                    # NMS 后处理
 │   └── map.py                    # mAP 评估
 │
-├── train.py                      # 训练入口脚本
+├── train.py                      # 训练入口脚本（跨系统兼容，DEVICE 自适应）
 ├── run_lr_finder.py              # LR Finder 运行脚本
 ├── test_model.py                 # 模型前向传播测试（Smoke Test）
-├── config.py                     # 统一路径配置（pathlib）
+├── config.py                     # 统一路径配置（pathlib，本地/云端一键切换）
 ├── lr_finder.png                 # LR Finder 结果图
+├── lr_finder_defect.png          # 第二版 LR Finder 曲线
+├── lr_finder_defect1.png         # 第三版 LR Finder 曲线
 ├── runs/                         # 训练输出（gitignore 忽略，含 checkpoint 和训练日志）
-├── requirements.txt
+├── requirements.txt              # 项目依赖（不含 PyTorch，避免云端 CUDA 版本冲突）
 ├── README.md
 ├── LICENSE
 ├── .gitattributes
