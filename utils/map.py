@@ -35,7 +35,7 @@ def evaluate_map(model, loader, DEVICE, decode_fn, conf_threshold=0.4, iou_thres
                     })
 
             # 解码target
-            targets = []
+            tgts = []
             for i in range(len(images)):
                 obj_mask = targets[i, :, :, 4] == 1.0
                 cells = obj_mask.nonzero(as_tuple=False)
@@ -52,17 +52,17 @@ def evaluate_map(model, loader, DEVICE, decode_fn, conf_threshold=0.4, iou_thres
                     gt_labels.append(label)
 
                 if gt_boxes:
-                    targets.append({
+                    tgts.append({
                         "boxes": torch.tensor(gt_boxes),
                         "labels": torch.tensor(gt_labels)
                     })
                 else:
-                    targets.append({
+                    tgts.append({
                         "boxes": torch.zeros((0, 4)),
                         "labels": torch.zeros(0, dtype=torch.long)
                     })
 
-            metric.update(preds, targets)
+            metric.update(preds, tgts)
 
     result = metric.compute()
     return result["map"].item()

@@ -57,7 +57,7 @@
 | 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积 + 2 层全连接检测头架构完整搭建 |
 | 4 | 📉 前向传播与 Loss 函数 | ✅ 完成 | `forward` 输出严格对齐 `(batch_size, 1470)`；Loss 完整实现（坐标/置信度/分类三分项 + IoU 工具）并已通过 Sanity Test |
 | 5 | 🔁 训练循环 + 可视化 | ✅ 完成 | `train.py` + `utils/lr_finder.py` + LR Finder 自动调优 |
-| 6 | 🔍 推理与 NMS + mAP 评估 | 🔄 进行中 | `utils/nms.py` + `utils/map.py` |
+| 6 | 🔍 推理与 NMS + mAP 评估 | 🔄 进行中 | ✅ `utils/nms.py` 完成 + `utils/map.py` |
 | 7 | 🎥 视频目标追踪 (SORT) | ⏳ 待开始 | `track.py`，基于 SORT 或简单 IoU 匹配 |
 
 ---
@@ -143,9 +143,9 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 在 LR Finder 中加入指数移动平均（EMA）对 loss 曲线做平滑处理，同时引入偏差修正：
 
-$$\hat{v}_t = \frac{v_t}{1 - \beta^t}$$
+$$\hat{v}_{t} = \frac{v_{t}}{1 - \beta^{t}}$$
 
-偏差修正的必要性：初始 $v_0 = 0$，前几轮迭代的估计值天然偏低，修正后曲线前段才真实可信。
+偏差修正的必要性：初始 $v_{0} = 0$，前几轮迭代的估计值天然偏低，修正后曲线前段才真实可信。
 
 EMA 本身存在一个固有的系统性局限：过往所有时刻的 loss 都参与当前值的计算，旧观测持续残留权重，新 loss 的突变需要多轮迭代才能逐渐冲淡历史影响，曲线永远滞后于真实信号。调整衰减系数 β 可以缓解滞后，但平滑度和响应速度是数学上互斥的，无法同时最优，只能取一个合适的折中值。读图时需配合最陡处法（Steepest）或谷底倒退法（Valley）人工判断最优区间。
 
@@ -368,7 +368,7 @@ def get_lr(epoch):
 
 ## 实验结果
 
-> 训练进行中（基于 VOC2007 + VOC2012 联合训练，第五次调整后的 lr schedule 重新训练，迁移至 AutoDL 云算力）
+训练已完成，模型在 VOC2007 + VOC2012 联合训练集上成功收敛（150 epochs）。
 
 ### 训练配置
 
@@ -376,6 +376,16 @@ def get_lr(epoch):
 - Batch size：16，优化器：SGD（momentum=0.9，weight_decay=5e-4）
 - lr schedule：warmup(1e-4→5e-4) → 5e-4 → 1.5e-4 → 5e-5，共 150 epochs
 - 梯度裁剪：max_norm=50.0
+
+### 最终训练结果
+
+| 指标 | 数值 | 所在 Epoch |
+| :--- | :--- | :---: |
+| Best Train Loss | 7.302 | 146 |
+| Best Val Loss | 7.219 | 111 |
+| Best Batch Loss | 3.346 | 61 |
+
+完整训练日志见 `runs/20260607_165143/`。
 
 ### 历史训练记录
 
@@ -385,16 +395,9 @@ def get_lr(epoch):
 | 第二次 | VOC2007 | `sum()`（未除 batch_size） | ~124 / ~122 （÷16 ≈ 7.8 / 7.6） | lr 策略已正确，但 Loss 实现有漏洞 |
 | 第三次 | VOC2007 | `sum()/batch_size` | ~7.9 / ~7.7 | Loss 归一化修复，但数据量成为新瓶颈 |
 | 第四次 | VOC2007 + VOC2012 | `sum()/batch_size` | ~7.30 / ~7.20（lr=5e-4 约 80 轮后平台） | 数据量提升 3.3 倍，lr 主干降至 5e-4 |
-| 第五次 | VOC2007 + VOC2012 | `sum()/batch_size` | 训练中 | lr 主干缩短至 80 轮，迁移 AutoDL 云算力，新增跨系统兼容 |
+| 第五次 | VOC2007 + VOC2012 | `sum()/batch_size` | ✅ 收敛，~7.302 / ~7.219 | lr 主干缩短至 80 轮，迁移 AutoDL 云算力 |
 
 > 注：表中的 Loss 量级差异仅来自聚合方式不同。若将第一次、第二次的 `sum()` 结果除以 batch_size（16），或将第三次的归一化结果乘回 batch_size，三者的平台期 Loss 会落在同一个量级（约 120–126 / ~7.6–7.8）。这一数值上的高度一致，排除了"学习率不同导致不同平台"的可能性，进一步指向数据量不足的假设。
-
-计划记录指标：
-
-- Train/Val Loss 曲线（每 epoch）
-- Batch 级别 loss 曲线（每 20 个 batch）
-- mAP@0.5 曲线
-- 各类别 AP 对比
 
 ---
 
@@ -431,7 +434,7 @@ yolov1-from-scratch/
 │   ├── loss_test.py              # Loss Sanity Test
 │   ├── iou.py                    # IoU 计算工具
 │   ├── lr_finder.py              # LR Finder 学习率范围测试
-│   ├── nms.py                    # NMS 后处理
+│   ├── nms.py                    # NMS 后处理（已完成）
 │   └── map.py                    # mAP 评估
 │
 ├── train.py                      # 训练入口脚本（跨系统兼容，DEVICE 自适应）
@@ -525,7 +528,7 @@ python test_model.py
 ## 后续计划 (Phase 6 及以后)
 
 **Phase 6 — 推理与 NMS + mAP 评估**
-实现 NMS（Non-Maximum Suppression）后处理，在原图上绘制检测框与置信度，支持单张图像与批量图像推理；基于 mAP 指标客观评估检测精度。
+✅ NMS 后处理已完成。接下来：在原图上绘制检测框与置信度，支持单张与批量图像推理；基于 mAP 指标客观评估检测精度。
 
 **Phase 7 — 视频目标追踪 (SORT)**
 在帧级检测结果的基础上，实现基于 IoU 匹配的简单多目标追踪（Simple SORT），为每个目标分配稳定的轨迹 ID，输出追踪视频。
@@ -542,4 +545,4 @@ python test_model.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-07
+持续更新中 · Last updated: 2026-06-08
