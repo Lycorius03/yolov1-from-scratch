@@ -14,7 +14,7 @@ def non_max_suppression(boxes, iou_threshold=0.5, conf_threshold=0.4):
   
   #解包boxes
   x, y, w, h = boxes[..., 0], boxes[..., 1], boxes[..., 2], boxes[..., 3]
-  confidences = boxes[..., 4]
+  socres = boxes[..., 4]
   class_ids = boxes[..., 5]
 
   x1 = x - w / 2
@@ -29,8 +29,8 @@ def non_max_suppression(boxes, iou_threshold=0.5, conf_threshold=0.4):
     if idxs.numel() == 0:
       return []
     boxes_c = torch.stack([x1[idxs], y1[idxs], x2[idxs], y2[idxs]], dim=1)
-    confidences_c = confidences[idxs]
-    keep_ids = nms(boxes_c, confidences_c, iou_threshold)
+    scores_c = socres[idxs]
+    keep_ids = nms(boxes_c, scores_c, iou_threshold)
     final_boxes.append(boxes[idxs[keep_ids]])
 
   if len(final_boxes) == 0:

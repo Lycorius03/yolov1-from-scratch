@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.8+-blue?style=flat-square&logo=python)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-orange?style=flat-square&logo=pytorch)
 ![Dataset](https://img.shields.io/badge/Dataset-Pascal%20VOC%202007%20%2B%202012-green?style=flat-square)
-![Status](https://img.shields.io/badge/Status-In%20Progress-yellow?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Phase%206%20完成-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
 
 ## 从零手写 YOLOv1 —— 不依赖任何检测框架，逐行理解目标检测的底层逻辑
@@ -57,7 +57,7 @@
 | 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积 + 2 层全连接检测头架构完整搭建 |
 | 4 | 📉 前向传播与 Loss 函数 | ✅ 完成 | `forward` 输出严格对齐 `(batch_size, 1470)`；Loss 完整实现（坐标/置信度/分类三分项 + IoU 工具）并已通过 Sanity Test |
 | 5 | 🔁 训练循环 + 可视化 | ✅ 完成 | `train.py` + `utils/lr_finder.py` + LR Finder 自动调优 |
-| 6 | 🔍 推理与 NMS + mAP 评估 | 🔄 进行中 | ✅ `utils/nms.py` 完成 + `utils/map.py` |
+| 6 | 🔍 推理与 NMS + mAP 评估 | ✅ 完成 | ✅ `utils/nms.py` + ✅ `detect.py` + `utils/map.py` |
 | 7 | 🎥 视频目标追踪 (SORT) | ⏳ 待开始 | `track.py`，基于 SORT 或简单 IoU 匹配 |
 
 ---
@@ -439,6 +439,7 @@ yolov1-from-scratch/
 │
 ├── train.py                      # 训练入口脚本（跨系统兼容，DEVICE 自适应）
 ├── run_lr_finder.py              # LR Finder 运行脚本
+├── detect.py                     # 图像推理、批量检测、预测可视化
 ├── test_model.py                 # 模型前向传播测试（Smoke Test）
 ├── config.py                     # 统一路径配置（pathlib，本地/云端一键切换）
 ├── lr_finder.png                 # LR Finder 结果图
@@ -528,7 +529,7 @@ python test_model.py
 ## 后续计划 (Phase 6 及以后)
 
 **Phase 6 — 推理与 NMS + mAP 评估**
-✅ NMS 后处理已完成。接下来：在原图上绘制检测框与置信度，支持单张与批量图像推理；基于 mAP 指标客观评估检测精度。
+✅ NMS 后处理已完成。✅ 推理与可视化已完成（`detect.py`）：支持单张图像、批量图像和 DataLoader 批量预测，完成检测框解码、NMS 后处理与 PIL 绘制可视化。mAP 评估待收尾。
 
 **Phase 7 — 视频目标追踪 (SORT)**
 在帧级检测结果的基础上，实现基于 IoU 匹配的简单多目标追踪（Simple SORT），为每个目标分配稳定的轨迹 ID，输出追踪视频。
@@ -545,4 +546,4 @@ python test_model.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-08
+持续更新中 · Last updated: 2026-06-15
