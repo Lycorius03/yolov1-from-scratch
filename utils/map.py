@@ -1,68 +1,56 @@
 import torch
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
+from detect import predict_batch
 
+def evaluate_map(model, loader, device='cuda', conf_threshold=0.4, iou_threshold=0.5):
+  model.eval()
+  model.to(device)
 
-def evaluate_map(model, loader, DEVICE, decode_fn, conf_threshold=0.4, iou_threshold=0.5):
+  #torchmetrics要求iou_threshold必须是list  
+  metric = MeanAveragePrecision(iou_thresholds=[iou_threshold])
+  metric.to(device)
 
-    model.eval()
-    metric = MeanAveragePrecision(iou_thresholds=[iou_threshold])
+  all_preds = []
+  all_targets = []
+  
+  with torch.no_grad():
+    for images, targets in loader:
+    
+      images = images.to(device)
+      batch_results = predict_batch(model, images, conf_threshold=conf_threshold, iou_threshold=iou_threshold)
 
-    with torch.no_grad():
-        for images, targets in loader:
-            images = images.to(DEVICE)
-            predictions = model(images)
+      for pred, target in zip(batch_results, targets):
+        
+        #处理预测标签(pred)的格式 xywh -> xyxy
+        if pred.shape[0] == 0:
+          pred_dict = {
+            'boxes': torch.zeros((0, 4), device=device),
+            'scores': torch.zeros((0,), device=device),
+            'labels': torch.zeros((0,), dtype=torch.long, device=device)
+          }
+        else:
+          px, py, pw, ph = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
+          pred_dict = {
+            'boxes': torch.stack([px - pw / 2, py - ph / 2, px + pw / 2, py + ph / 2], dim=1),
+            'scores': pred[:, 4],
+            'labels': pred[:, 5]
+          }
+        all_preds.append(pred_dict)
+  
+        #处理真实标签(pred)的格式 xywh -> xyxy
+        if len(target) == 0: 
+          target_dict = {
+              'boxes': torch.zeros((0, 4), device=device),
+              'labels': torch.zeros((0,), dtype=torch.long, device=device)
+          }
+        else:
+          boxes_xywh = target[:, -4:].to(device)
+          x, y, w, h = boxes_xywh[:, 0], boxes_xywh[:, 1], boxes_xywh[:, 2], boxes_xywh[:, 3]
+          target_dict = {
+              'boxes': torch.stack([x - w / 2, y - h / 2, x + w / 2, y + h / 2], dim=1),
+              'labels': target[:, :-4].argmax(dim=1).to(device)
+          }
+        all_targets.append(target_dict)
 
-            # 解码预测框
-            pred_boxes_list = decode_fn(predictions, conf_threshold=conf_threshold)
-
-            preds = []
-            for boxes in pred_boxes_list:
-                if len(boxes) == 0:
-                    preds.append({
-                        "boxes": torch.zeros((0, 4)),
-                        "scores": torch.zeros(0),
-                        "labels": torch.zeros(0, dtype=torch.long)
-                    })
-                else:
-                    # xywh → xyxy
-                    xy = boxes[:, :2]
-                    wh = boxes[:, 2:4]
-                    boxes_xyxy = torch.cat([xy - wh/2, xy + wh/2], dim=1)
-                    preds.append({
-                        "boxes": boxes_xyxy,
-                        "scores": boxes[:, 4],
-                        "labels": boxes[:, 5].long()
-                    })
-
-            # 解码target
-            tgts = []
-            for i in range(len(images)):
-                obj_mask = targets[i, :, :, 4] == 1.0
-                cells = obj_mask.nonzero(as_tuple=False)
-                gt_boxes = []
-                gt_labels = []
-                for row, col in cells:
-                    cell = targets[i, row, col]
-                    cx = (cell[0] + col) / 7
-                    cy = (cell[1] + row) / 7
-                    w = cell[2]
-                    h = cell[3]
-                    label = cell[10:].argmax().long()
-                    gt_boxes.append([cx - w/2, cy - h/2, cx + w/2, cy + h/2])
-                    gt_labels.append(label)
-
-                if gt_boxes:
-                    tgts.append({
-                        "boxes": torch.tensor(gt_boxes),
-                        "labels": torch.tensor(gt_labels)
-                    })
-                else:
-                    tgts.append({
-                        "boxes": torch.zeros((0, 4)),
-                        "labels": torch.zeros(0, dtype=torch.long)
-                    })
-
-            metric.update(preds, tgts)
-
-    result = metric.compute()
-    return result["map"].item()
+    metric.update(all_preds, all_targets)
+  return metric.compute()['map'].item()  

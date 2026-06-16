@@ -58,7 +58,8 @@
 | 4 | 📉 前向传播与 Loss 函数 | ✅ 完成 | `forward` 输出严格对齐 `(batch_size, 1470)`；Loss 完整实现（坐标/置信度/分类三分项 + IoU 工具）并已通过 Sanity Test |
 | 5 | 🔁 训练循环 + 可视化 | ✅ 完成 | `train.py` + `utils/lr_finder.py` + LR Finder 自动调优 |
 | 6 | 🔍 推理与 NMS + mAP 评估 | ✅ 完成 | ✅ `utils/nms.py` + ✅ `detect.py` + `utils/map.py` |
-| 7 | 🎥 视频目标追踪 (SORT) | ⏳ 待开始 | `track.py`，基于 SORT 或简单 IoU 匹配 |
+| 7 | 📊 画图可视化模块 | ⏳ 待开始 | 训练曲线：Loss、mAP 等 |
+| 8 | 🎥 视频目标追踪 (SORT) | ⏳ 待开始 | `track.py`，基于 SORT 或简单 IoU 匹配 |
 
 ---
 
@@ -529,9 +530,12 @@ python test_model.py
 ## 后续计划 (Phase 6 及以后)
 
 **Phase 6 — 推理与 NMS + mAP 评估**
-✅ NMS 后处理已完成。✅ 推理与可视化已完成（`detect.py`）：支持单张图像、批量图像和 DataLoader 批量预测，完成检测框解码、NMS 后处理与 PIL 绘制可视化。mAP 评估待收尾。
+✅ NMS 后处理已完成。✅ 推理与可视化已完成（`detect.py`）：支持单张图像、批量图像和 DataLoader 批量预测，完成检测框解码、NMS 后处理与 PIL 绘制可视化。✅ mAP 评估已完成并集成到训练流程（`utils/map.py`）——每 5 个 epoch 自动计算，CSV 日志与 checkpoint 均记录 mAP。mAP 集成的完成意味着训练链路真正闭环，可以正式启动完整训练。
 
-**Phase 7 — 视频目标追踪 (SORT)**
+**Phase 7 — 画图可视化模块**
+📊 训练曲线可视化：Loss 曲线、mAP 曲线等，基于训练日志 CSV 自动生成图表。
+
+**Phase 8 — 视频目标追踪 (SORT)**
 在帧级检测结果的基础上，实现基于 IoU 匹配的简单多目标追踪（Simple SORT），为每个目标分配稳定的轨迹 ID，输出追踪视频。
 
 ---
@@ -546,4 +550,4 @@ python test_model.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-15
+持续更新中 · Last updated: 2026-06-16

@@ -10,9 +10,20 @@ from dataset.voc_dataset import VOCDataset
 from models.yolov1 import YOLOv1
 from loss.yolo_loss import YoloLoss
 from config import VOC2007_DIR, VOC2012_DIR, RUNS_DIR
+from utils.map import evaluate_map
 
 # torch.backends.cudnn.enabled = False
 
+def collate_fn(batch):
+  images = []
+  targets = []
+
+  for img, target in batch:
+    images.append(img)
+    targets.append(target)
+
+  images = torch.stack(images, dim=0)
+  return images, targets
 
 #学习率
 def get_lr(epoch):
@@ -113,7 +124,8 @@ if __name__ == "__main__":
       transforms.Resize((448, 448)),
       transforms.ToTensor(),
     ]),
-    split='val'
+    split='val',
+    use_encoded_target=False
   )
 
   #DataLoader
@@ -131,6 +143,7 @@ if __name__ == "__main__":
     shuffle=False,
     num_workers=4,
     pin_memory=True,
+    collate_fn=collate_fn
   )
 
   #定义模型, Loss, 优化器
@@ -152,7 +165,7 @@ if __name__ == "__main__":
   log_file = log_dir / "training_log.csv"
   with open(log_file, 'w', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(["epoch","train_loss","val_loss","lr"])
+    writer.writerow(["epoch","train_loss","val_loss","mAP","lr"])
 
   batch_log_file = log_dir / "batch_log.csv"
   with open(batch_log_file, 'w', newline='') as f:
@@ -186,11 +199,18 @@ if __name__ == "__main__":
     val_loss = val_one_epoch(model, val_loader, loss_fn, DEVICE)
 
     print(f"train_loss: {train_loss:.4f} val_loss: {val_loss:.4f}")
+    
+    #mAP
+    mAP = 0.0
+    if epoch % 5 == 0:
+      mAP = evaluate_map(model=model, loader=val_loader, device=DEVICE, conf_threshold=0.4, iou_threshold=0.5)
+      print(f"\nmAP: {mAP:.4f}")
+
 
     #写入CSV
     with open(log_file, 'a', newline='') as f:
       writer = csv.writer(f)
-      writer.writerow([epoch, train_loss, val_loss, lr])
+      writer.writerow([epoch, train_loss, val_loss, mAP, lr])
 
     #保存最优模型
     if val_loss < best_val_loss:
@@ -202,5 +222,6 @@ if __name__ == "__main__":
       'optimizer_state_dict': optimizer.state_dict(),
       'train_loss': train_loss,
       'val_loss': val_loss,
+      'mAP': mAP
     }, log_dir / "checkpoint.pth")
-      print(f"模型已保存 (val_loss:{val_loss:.4f})")
+      print(f"模型已保存 (val_loss:{val_loss:.4f}, mAP:{mAP:.4f})")

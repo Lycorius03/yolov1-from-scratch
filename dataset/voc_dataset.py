@@ -8,12 +8,13 @@ from pathlib import Path
 from config import VOC2007_DIR, VOC2012_DIR
 
 class VOCDataset(Dataset):
-  def __init__(self, root_dirs, transform=None, split='train'):
+  def __init__(self, root_dirs, transform=None, split='train', use_encoded_target=True):
     if isinstance(root_dirs, str):
       root_dirs = [root_dirs]
     self.root_dirs = root_dirs
     self.transform = transform
     self.split = split
+    self.use_encoded_target = use_encoded_target
     self.class_names = [
         "aeroplane", "bicycle", "bird", "boat", "bottle",
         "bus", "car", "cat", "chair", "cow",
@@ -62,13 +63,17 @@ class VOCDataset(Dataset):
     if self.transform:
       image = self.transform(image)
 
-    # #返回简单格式,此种格式只适合通用检测框架，Faster R-CNN, DETR, 数据分析等，YOLO需要特定的格式，也就是哟个_encode_target()转换之后的格式
+    # #返回简单格式,此种格式只适合通用检测框架，Faster R-CNN, DETR, 数据分析等，YOLO需要特定的格式，也就是_encode_target()转换之后的格式
     # target = {
     #   "boxes" : boxes,
     #   "labels" : labels,
     #   "image_id" : image_id
     # }
-    target = self._encode_target(boxes, labels)
+    if self.use_encoded_target:
+      target = self._encode_target(boxes, labels)
+    else :
+      target = self._encode_raw_target(boxes, labels)
+
     return image, target
   
   #实现XML解析函数
@@ -145,4 +150,25 @@ class VOCDataset(Dataset):
       #One_hot编码
       target[row, col, 10 + label] = 1.0
 
+    return target
+  
+  def _encode_raw_target(self, boxes, labels, image_size=448):
+    if len(boxes) == 0:
+        return torch.zeros((0, 24), dtype=torch.float32)
+
+    # xyxy -> xywh 并归一化
+    xyxy = boxes.clone()
+    xywh = torch.zeros_like(xyxy)
+    xywh[:, 0] = (xyxy[:, 0] + xyxy[:, 2]) / 2 / image_size 
+    xywh[:, 1] = (xyxy[:, 1] + xyxy[:, 3]) / 2 / image_size   
+    xywh[:, 2] = (xyxy[:, 2] - xyxy[:, 0]) / image_size       
+    xywh[:, 3] = (xyxy[:, 3] - xyxy[:, 1]) / image_size       
+
+    #one-hot
+    num_objs = len(labels)
+    onehot = torch.zeros((num_objs, 20), dtype=torch.float32)
+    onehot[range(num_objs), labels] = 1.0
+
+    #拼接
+    target = torch.cat([onehot, xywh], dim=1)
     return target
