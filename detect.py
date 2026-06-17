@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw
 
 from models.yolov1 import YOLOv1
 from utils.nms import non_max_suppression
+from utils.map import evaluate_map
 
 CLASS_NAMES = [
   "aeroplane", "bicycle", "bird", "boat", "bottle",
@@ -15,9 +16,9 @@ CLASS_NAMES = [
 def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="cuda"):
   
   #reshape
-  bacth_size = predictions.shape[0]
+  batch_size = predictions.shape[0]
 
-  predictions = predictions.reshape(bacth_size, S, S, B * 5 + C).to(device)
+  predictions = predictions.reshape(batch_size, S, S, B * 5 + C).to(device)
 
   #build grid position map
   grid_y, grid_x = torch.meshgrid(
@@ -31,7 +32,7 @@ def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="
 
   all_boxes = []
   #decode bbox-information and calss-information
-  for b in range(bacth_size):
+  for b in range(batch_size):
     cell_preds = predictions[b]
 
     bbox_preds = cell_preds[..., :B * 5].reshape(S, S, B, 5)
@@ -51,22 +52,22 @@ def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="
     boxes = boxes.permute(2, 0, 1, 3).reshape(-1, 5)
 
   #筛掉置信度低于conf_threshold的框
-  keep_mask = scores.max(dim=1).values > conf_threshold
+    keep_mask = scores.max(dim=1).values > conf_threshold
 
-  boxes = boxes[keep_mask]
-  class_ids = torch.argmax(scores, dim=1)[keep_mask]
-  scores = scores.max(dim=1).values[keep_mask]
+    boxes = boxes[keep_mask]
+    class_ids = torch.argmax(scores, dim=1)[keep_mask]
+    scores = scores.max(dim=1).values[keep_mask]
 
-  if boxes.shape[0] == 0:
-    all_boxes.append(torch.zeros((0, 6), device=device))
-  else:
-    all_boxes.append(
-      torch.cat([
-        boxes[:, :4],
-        scores.unsqueeze(1),
-        class_ids.unsqueeze(1).float()
-      ], dim=1)
-    )
+    if boxes.shape[0] == 0:
+      all_boxes.append(torch.zeros((0, 6), device=device))
+    else:
+      all_boxes.append(
+        torch.cat([
+          boxes[:, :4],
+          scores.unsqueeze(1),
+          class_ids.unsqueeze(1).float()
+        ], dim=1)
+      )
 
   return all_boxes
 
@@ -148,4 +149,8 @@ def visualize_predictions(model, loader, image_indices=None, device="cuda", conf
           global_idx += 1
   
   return results
+
+def evaluate_on_loader(model, loader, device="cuda", conf_threshold=0.4, iou_threshold=0.5):
     
+    print("进行 mAP 评估...")
+    return evaluate_map(model=model, loader=loader, device=device, conf_threshold=conf_threshold, iou_threshold=iou_threshold)

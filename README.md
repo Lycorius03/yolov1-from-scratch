@@ -58,7 +58,7 @@
 | 4 | 📉 前向传播与 Loss 函数 | ✅ 完成 | `forward` 输出严格对齐 `(batch_size, 1470)`；Loss 完整实现（坐标/置信度/分类三分项 + IoU 工具）并已通过 Sanity Test |
 | 5 | 🔁 训练循环 + 可视化 | ✅ 完成 | `train.py` + `utils/lr_finder.py` + LR Finder 自动调优 |
 | 6 | 🔍 推理与 NMS + mAP 评估 | ✅ 完成 | ✅ `utils/nms.py` + ✅ `detect.py` + `utils/map.py` |
-| 7 | 📊 画图可视化模块 | ⏳ 待开始 | 训练曲线：Loss、mAP 等 |
+| 7 | 📊 画图可视化模块 | ✅ 完成 | `utils/plot_utils.py`：双 y 轴训练曲线 + 单指标曲线绘制 |
 | 8 | 🎥 视频目标追踪 (SORT) | ⏳ 待开始 | `track.py`，基于 SORT 或简单 IoU 匹配 |
 
 ---
@@ -402,6 +402,21 @@ def get_lr(epoch):
 
 ---
 
+## 阶段反思
+
+由于是第一次独立做完整的深度学习项目，经验不足，导致前期过度关注 Loss 值的变化。`train.py` 训练脚本完成后，迫不及待地就开始训练，并长时间陷入"调整学习率 → 重新训练"的循环，苛求 Loss 要降到足够低，却忽略了一个基本事实：YOLOv1 毕竟是十年前的模型了，在当时的技术水平下，Loss 的收敛天花板本身就有限。
+
+后续了解到 mAP 评估指标后，思路发生了变化——不再过多纠结于 Loss 值是否好看，而是着手加入 mAP 评测模块，并同步推进 NMS 以及推理模块（`detect.py`）的完成，同时对训练脚本进行了多轮改进。目前这一阶段已初步告一段落。既然加入了 mAP 评估，前面五次调整学习率的训练记录依然会保留——毕竟是自己一步步走过来的路，每一次实验也都是货真价实做了的。但从现在开始，后续的训练才算得上是真正正式、有效的训练。
+
+此外，新增了 `utils/plot_utils.py` 模块用于训练数据的可视化，专门绘制训练曲线。其中主要包含两个函数：
+
+- **`plot_training_curve`**：绘制训练综合曲线，采用双 y 轴设计——左轴为 Loss 曲线（Train Loss + Val Loss），右轴为 mAP 曲线，一张图即可纵览训练全貌。
+- **`plot_single_metric`**：用于专门绘制单指标曲线，支持 mAP、Train Loss、Val Loss 三种指标的独立可视化。
+
+坦白来说，现在的程序里面仍然还有很多需要优化的地方——不只是功能模块需要更规范的组织，还有一些过于保守的冗余防御性编程写法，其实是可以简化的。不过我觉得当前阶段的重心应该暂时放在把完整流程跑完，而非过早陷入细节打磨。
+
+---
+
 ## 项目结构
 
 ```text
@@ -436,7 +451,8 @@ yolov1-from-scratch/
 │   ├── iou.py                    # IoU 计算工具
 │   ├── lr_finder.py              # LR Finder 学习率范围测试
 │   ├── nms.py                    # NMS 后处理（已完成）
-│   └── map.py                    # mAP 评估
+│   ├── map.py                    # mAP 评估
+│   └── plot_utils.py             # 训练曲线可视化（双 y 轴 + 单指标）
 │
 ├── train.py                      # 训练入口脚本（跨系统兼容，DEVICE 自适应）
 ├── run_lr_finder.py              # LR Finder 运行脚本
@@ -533,7 +549,7 @@ python test_model.py
 ✅ NMS 后处理已完成。✅ 推理与可视化已完成（`detect.py`）：支持单张图像、批量图像和 DataLoader 批量预测，完成检测框解码、NMS 后处理与 PIL 绘制可视化。✅ mAP 评估已完成并集成到训练流程（`utils/map.py`）——每 5 个 epoch 自动计算，CSV 日志与 checkpoint 均记录 mAP。mAP 集成的完成意味着训练链路真正闭环，可以正式启动完整训练。
 
 **Phase 7 — 画图可视化模块**
-📊 训练曲线可视化：Loss 曲线、mAP 曲线等，基于训练日志 CSV 自动生成图表。
+✅ 已完成。`utils/plot_utils.py` 实现双 y 轴训练综合曲线（`plot_training_curve`）与单指标曲线（`plot_single_metric`），基于训练日志 CSV 自动生成图表。
 
 **Phase 8 — 视频目标追踪 (SORT)**
 在帧级检测结果的基础上，实现基于 IoU 匹配的简单多目标追踪（Simple SORT），为每个目标分配稳定的轨迹 ID，输出追踪视频。

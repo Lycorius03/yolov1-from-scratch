@@ -11,6 +11,7 @@ from models.yolov1 import YOLOv1
 from loss.yolo_loss import YoloLoss
 from config import VOC2007_DIR, VOC2012_DIR, RUNS_DIR
 from utils.map import evaluate_map
+from utils.plot_utils import plot_training_curve
 
 # torch.backends.cudnn.enabled = False
 
@@ -225,3 +226,9 @@ if __name__ == "__main__":
       'mAP': mAP
     }, log_dir / "checkpoint.pth")
       print(f"模型已保存 (val_loss:{val_loss:.4f}, mAP:{mAP:.4f})")
+  
+#绘制曲线  
+print("\n=== 老大，训练完成，正在绘制训练曲线喵 ===")
+plot_path = log_dir / "train_curve.png"
+plot_training_curve(log_file=str(log_file), save_path=str(plot_path))
+print("老大，训练曲线绘制完了喵！")
