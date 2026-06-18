@@ -53,4 +53,9 @@ def evaluate_map(model, loader, device='cuda', conf_threshold=0.4, iou_threshold
         all_targets.append(target_dict)
 
     metric.update(all_preds, all_targets)
-  return metric.compute()['map'].item()  
+  return metric.compute()['map'].item()
+
+
+def evaluate_on_loader(model, loader, device="cuda", conf_threshold=0.4, iou_threshold=0.5):
+    print("进行 mAP 评估...")
+    return evaluate_map(model=model, loader=loader, device=device, conf_threshold=conf_threshold, iou_threshold=iou_threshold)

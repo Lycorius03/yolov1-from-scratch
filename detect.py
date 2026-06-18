@@ -4,7 +4,6 @@ from PIL import Image, ImageDraw
 
 from models.yolov1 import YOLOv1
 from utils.nms import non_max_suppression
-from utils.map import evaluate_map
 
 CLASS_NAMES = [
   "aeroplane", "bicycle", "bird", "boat", "bottle",
@@ -145,8 +144,3 @@ def visualize_predictions(model, loader, image_indices=None, device="cuda", conf
           global_idx += 1
   
   return results
-
-def evaluate_on_loader(model, loader, device="cuda", conf_threshold=0.4, iou_threshold=0.5):
-    
-    print("进行 mAP 评估...")
-    return evaluate_map(model=model, loader=loader, device=device, conf_threshold=conf_threshold, iou_threshold=iou_threshold)
