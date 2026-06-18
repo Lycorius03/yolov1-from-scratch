@@ -509,6 +509,7 @@ numpy
 Pillow
 opencv-python
 matplotlib
+torchmetrics
 ```
 
 ### 3. 准备数据集
