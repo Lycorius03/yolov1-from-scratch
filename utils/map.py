@@ -33,7 +33,7 @@ def evaluate_map(model, loader, device='cuda', conf_threshold=0.4, iou_threshold
           pred_dict = {
             'boxes': torch.stack([px - pw / 2, py - ph / 2, px + pw / 2, py + ph / 2], dim=1),
             'scores': pred[:, 4],
-            'labels': pred[:, 5]
+            'labels': pred[:, 5].long()
           }
         all_preds.append(pred_dict)
   
