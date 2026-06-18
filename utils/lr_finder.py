@@ -45,7 +45,7 @@ def lr_finder(model, loader, optimizer, loss_fn, DEVICE, start_lr=1e-6, end_lr=1
     predictions = model(images)
     loss = loss_fn(predictions, targets)
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=50.0)
     optimizer.step()
     
     #EMA

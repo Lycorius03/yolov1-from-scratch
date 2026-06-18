@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.8+-blue?style=flat-square&logo=python)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-orange?style=flat-square&logo=pytorch)
 ![Dataset](https://img.shields.io/badge/Dataset-Pascal%20VOC%202007%20%2B%202012-green?style=flat-square)
-![Status](https://img.shields.io/badge/Status-Phase%206%20完成-brightgreen?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Phase%207%20完成-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
 
 ## 从零手写 YOLOv1 —— 不依赖任何检测框架，逐行理解目标检测的底层逻辑
@@ -57,7 +57,8 @@
 | 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积 + 2 层全连接检测头架构完整搭建 |
 | 4 | 📉 前向传播与 Loss 函数 | ✅ 完成 | `forward` 输出严格对齐 `(batch_size, 1470)`；Loss 完整实现（坐标/置信度/分类三分项 + IoU 工具）并已通过 Sanity Test |
 | 5 | 🔁 训练循环 + 可视化 | ✅ 完成 | `train.py` + `utils/lr_finder.py` + LR Finder 自动调优 |
-| 6 | 🔍 推理与 NMS + mAP 评估 | ✅ 完成 | ✅ `utils/nms.py` + ✅ `detect.py` + `utils/map.py` |
+| 6 | 🔍 推理与 NMS + mAP 评估 | ✅ 完成 | ✅ `utils/nms.py` + ✅ `detect.py`（纯函数库） + ✅ `utils/map.py` |
+| 6 | 🖼️ 推理入口脚本 | ✅ 完成 | `run_detect.py`：单图/目录/验证集采样三种模式，加载 `best_model.pth` 直接出检测结果图 |
 | 7 | 📊 画图可视化模块 | ✅ 完成 | `utils/plot_utils.py`：双 y 轴训练曲线 + 单指标曲线绘制 |
 | 8 | 🎥 视频目标追踪 (SORT) | ⏳ 待开始 | `track.py`，基于 SORT 或简单 IoU 匹配 |
 
@@ -351,10 +352,10 @@ def get_lr(epoch):
 
 为确保代码在本地（Windows）和云端（Linux）之间无缝切换，做了以下适配：
 
-- **路径系统解耦**：所有路径配置统一收口到 `config.py`（基于 `pathlib`），不硬编码绝对路径。本地与云端只需修改 `config.py` 中 `DATA_DIR`、`VOC2007_DIR`、`VOC2012_DIR`、`RUNS_DIR` 的指向即可，无需改动训练逻辑。
+- **路径系统解耦**：所有路径配置统一收口到 `config.py`（基于 `pathlib`），不硬编码绝对路径。本地与云端只需修改 `config.py` 中 `DATA_ROOT`、`VOC2007_DIR`、`VOC2012_DIR`、`RUNS_DIR` 的指向即可，无需改动训练逻辑。
 - **设备自适应**：`train.py` 中 `DEVICE = "cuda" if torch.cuda.is_available() else "cpu"` 保证代码在无 GPU 环境下不会报错。
 - **PyTorch 依赖排除**：`requirements.txt` 中不包含 PyTorch 及其相关包，避免本地与云端 CUDA 版本冲突。云端实例通常已预装对应 CUDA 版本的 PyTorch，只需 `pip install -r requirements.txt` 安装其余依赖即可直接运行。
-- **运行脚本标准化**：训练入口统一通过 `python train.py` 启动，LR Finder 通过 `python run_lr_finder.py` 启动，不依赖任何平台特定的启动方式。
+- **运行脚本标准化**：训练入口统一通过 `python train.py` 启动，LR Finder 通过 `python run_lr_finder.py` 启动，推理通过 `python run_detect.py` 启动，不依赖任何平台特定的启动方式。
 
 ##### 3. 更新后的学习率策略
 
@@ -369,9 +370,9 @@ def get_lr(epoch):
 
 ---
 
-## 实验结果
+## 前期调试记录（mAP 集成之前）
 
-训练已完成，模型在 VOC2007 + VOC2012 联合训练集上成功收敛（150 epochs）。
+以下五次训练均发生在 mAP 评估模块集成之前。当时的训练只能通过 loss 判断收敛状态，缺乏检测精度的量化指标，因此这五轮本质上属于调试阶段——用于排查 loss 实现漏洞、验证学习率策略、测试数据量扩展效果。**正式训练将以 mAP 为核心评估指标重新启动。**
 
 ### 训练配置
 
@@ -380,7 +381,7 @@ def get_lr(epoch):
 - lr schedule：warmup(1e-4→5e-4) → 5e-4 → 1.5e-4 → 5e-5，共 150 epochs
 - 梯度裁剪：max_norm=50.0
 
-### 最终训练结果
+### 第五次训练结果
 
 | 指标 | 数值 | 所在 Epoch |
 | :--- | :--- | :---: |
@@ -456,7 +457,8 @@ yolov1-from-scratch/
 │
 ├── train.py                      # 训练入口脚本（跨系统兼容，DEVICE 自适应）
 ├── run_lr_finder.py              # LR Finder 运行脚本
-├── detect.py                     # 图像推理、批量检测、预测可视化
+├── run_detect.py                 # 推理入口脚本（单图/目录/验证集采样，智能检测框绘制）
+├── detect.py                     # 图像推理、批量检测、预测可视化（纯函数库）
 ├── test_model.py                 # 模型前向传播测试（Smoke Test）
 ├── config.py                     # 统一路径配置（pathlib，本地/云端一键切换）
 ├── lr_finder.png                 # LR Finder 结果图
@@ -541,18 +543,31 @@ python test_model.py
 
 运行后执行前向传播维度断言测试（Smoke Test）：以随机生成的 `(4, 3, 448, 448)` 张量作为输入，验证输出形状严格等于 `(batch_size, 1470)`，并打印模型总参数量。当前已通过全部测试。
 
+### 6. 运行推理（需要先完成训练生成 best_model.pth）
+
+训练完成后，在 `run_detect.py` 顶部修改以下变量后直接运行：
+
+```python
+RUN_NAME = "20260607_165143"   # runs/ 下训练记录的时间戳文件夹名
+MODE = "single"                # single | dir | val_sample       
+INPUT = "test.jpg"             # single/dir 模式下的输入路径
+NUM_SAMPLES = 5                # val_sample 模式下采样张数
+```
+
+```bash
+python run_detect.py
+```
+
+- `single` 模式：对单张图片推理并保存检测结果图
+- `dir` 模式：对一个目录下的所有图片批量推理
+- `val_sample` 模式：从验证集随机采样指定张数，可视化检测效果，无需额外准备图片
+
 ---
 
-## 后续计划 (Phase 6 及以后)
-
-**Phase 6 — 推理与 NMS + mAP 评估**
-✅ NMS 后处理已完成。✅ 推理与可视化已完成（`detect.py`）：支持单张图像、批量图像和 DataLoader 批量预测，完成检测框解码、NMS 后处理与 PIL 绘制可视化。✅ mAP 评估已完成并集成到训练流程（`utils/map.py`）——每 5 个 epoch 自动计算，CSV 日志与 checkpoint 均记录 mAP。mAP 集成的完成意味着训练链路真正闭环，可以正式启动完整训练。
-
-**Phase 7 — 画图可视化模块**
-✅ 已完成。`utils/plot_utils.py` 实现双 y 轴训练综合曲线（`plot_training_curve`）与单指标曲线（`plot_single_metric`），基于训练日志 CSV 自动生成图表。
+## 后续计划
 
 **Phase 8 — 视频目标追踪 (SORT)**
-在帧级检测结果的基础上，实现基于 IoU 匹配的简单多目标追踪（Simple SORT），为每个目标分配稳定的轨迹 ID，输出追踪视频。
+在帧级检测结果的基础上，实现基于 IoU 匹配的简单多目标追踪（Simple SORT），为每个目标分配稳定的轨迹 ID，输出追踪视频。`detect.py` 作为纯函数库提供逐帧检测接口，`run_detect.py` 作为独立推理入口验证单帧效果，二者共同为 Phase 8 的视频帧级推理做好准备。
 
 ---
 
@@ -566,4 +581,4 @@ python test_model.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-16
+持续更新中 · Last updated: 2026-06-19

@@ -89,11 +89,7 @@ def predict_batch(model, images, conf_threshold=0.4, iou_threshold=0.5):
       continue
 
     boxes = non_max_suppression(boxes, iou_threshold=iou_threshold, conf_threshold=conf_threshold)
-
-    if len(boxes) == 0:
-      final_results.append(torch.zeros((0, 6), device=device))
-    else:
-      final_results.append(torch.stack(boxes))
+    final_results.append(boxes)
 
   return final_results
 

@@ -116,7 +116,21 @@ if __name__ == "__main__":
   )
 
   #验证集
-  val_dataset = VOCDataset(
+  val_encoded_dataset = VOCDataset(
+        root_dirs=[
+        str(VOC2007_DIR),
+        str(VOC2012_DIR)
+    ],
+    transform=transforms.Compose([
+      transforms.Resize((448, 448)),
+      transforms.ToTensor(),
+    ]),
+    split='val',
+    use_encoded_target=True
+  )
+
+  #验证集
+  val_raw_dataset = VOCDataset(
         root_dirs=[
         str(VOC2007_DIR),
         str(VOC2012_DIR)
@@ -138,8 +152,16 @@ if __name__ == "__main__":
     pin_memory=True,
   )
 
-  val_loader = DataLoader(
-    val_dataset,
+  val_encoded_loader = DataLoader(
+    val_encoded_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    num_workers=4,
+    pin_memory=True,
+  )
+
+  val_raw_loader = DataLoader(
+    val_raw_dataset,
     batch_size=BATCH_SIZE,
     shuffle=False,
     num_workers=4,
@@ -197,14 +219,14 @@ if __name__ == "__main__":
 
     #训练和验证
     train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE, epoch ,batch_log_file)
-    val_loss = val_one_epoch(model, val_loader, loss_fn, DEVICE)
+    val_loss = val_one_epoch(model, val_encoded_loader, loss_fn, DEVICE)
 
     print(f"train_loss: {train_loss:.4f} val_loss: {val_loss:.4f}")
     
     #mAP
     mAP = 0.0
     if epoch % 5 == 0:
-      mAP = evaluate_map(model=model, loader=val_loader, device=DEVICE, conf_threshold=0.4, iou_threshold=0.5)
+      mAP = evaluate_map(model=model, loader=val_raw_loader, device=DEVICE, conf_threshold=0.4, iou_threshold=0.5)
       print(f"\nmAP: {mAP:.4f}")
 
 
