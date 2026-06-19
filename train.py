@@ -200,7 +200,7 @@ if __name__ == "__main__":
 
   best_val_loss = float('inf')
 
-  RESUME_PATH = None
+  RESUME_PATH = "runs/20260619_230936/checkpoint.pth"
   start_epoch = 1
 
   if RESUME_PATH and Path(RESUME_PATH).exists():
