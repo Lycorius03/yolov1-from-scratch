@@ -28,16 +28,16 @@ def collate_fn(batch):
 
 #学习率
 def get_lr(epoch):
-  if epoch <= 10:
-      start_lr = 1e-4 
-      end_lr = 5e-4 
-      return start_lr + (end_lr - start_lr) * (epoch - 1) / 10
+  if epoch <= 20:
+      start_lr = 1e-4
+      end_lr = 5e-4
+      return start_lr + (end_lr - start_lr) * (epoch - 1) / 20
   elif epoch <= 80:
       return 5e-4
-  elif epoch <= 130:
-      return 1.5e-4
+  elif epoch <= 135:
+      return 2e-4
   else:
-      return 5e-5
+      return 7e-5
 def set_lr(optimizer, lr):
   for param_group in optimizer.param_groups:
     param_group['lr'] = lr
@@ -92,7 +92,7 @@ if __name__ == "__main__":
   B = 2
   C = 20
   BATCH_SIZE = 16
-  NUM_EPOCHS = 150
+  NUM_EPOCHS = 170
   LEARNING_RATE = 1e-3
   DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
