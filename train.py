@@ -226,7 +226,7 @@ if __name__ == "__main__":
     #mAP
     mAP = 0.0
     if epoch % 5 == 0:
-      mAP = evaluate_map(model=model, loader=val_raw_loader, device=DEVICE, conf_threshold=0.4, iou_threshold=0.5)
+      mAP = evaluate_map(model=model, loader=val_raw_loader, device=DEVICE, conf_threshold=0.1, iou_threshold=0.5)
       print(f"\nmAP: {mAP:.4f}")
 
 

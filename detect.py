@@ -40,8 +40,8 @@ def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="
   #transform position
     x = (bbox_preds[..., 0] + grid_x) / S
     y = (bbox_preds[..., 1] + grid_y) / S
-    w = bbox_preds[..., 2]
-    h  = bbox_preds[..., 3]
+    w = torch.abs(bbox_preds[..., 2])
+    h = torch.abs(bbox_preds[..., 3])
     conf = bbox_preds[..., 4] 
 
   #reshape
