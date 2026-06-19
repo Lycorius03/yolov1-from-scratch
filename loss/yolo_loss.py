@@ -59,7 +59,7 @@ class YoloLoss(nn.Module):
     coord_loss = self.lambda_coord * (xy_loss + wh_loss)
 
     #obj confidence Loss
-    obj_conf_target = (bbox1_responsible.float() * iou1 + bbox2_responsible.float() * iou2) * obj_mask.float()
+    obj_conf_target = (bbox1_responsible.float() * torch.clamp(iou1, min=0.3) + bbox2_responsible.float() * torch.clamp(iou2, min=0.3)) * obj_mask.float()
     obj_conf_pred = ((bbox1_responsible * bbox1_pred[..., 4]) + (bbox2_responsible * bbox2_pred[..., 4])) * obj_mask
     obj_conf_loss = torch.sum((obj_conf_pred - obj_conf_target.detach()) ** 2)
 

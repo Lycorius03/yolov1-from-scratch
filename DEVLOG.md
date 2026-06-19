@@ -390,6 +390,29 @@ loss=7.3 就是这个妥协策略的平衡点。修复 lambda_noobj 只减半了
 
 ---
 
+**后续验证**（2026-06-19）：conf target=IoU 修复后重新训练。loss 降得更快（epoch 1 即 6.95 vs 上一次 9.04），但 epoch 20 后 train loss 卡在 5.09，val loss 卡在 4.99，mAP 仍为 0。
+
+诊断脚本输出：max score = 0.013，比修复前（0.049）更低。每张图刚好 2 框，score 完全一致——说明 conf target=IoU 在从零训练时遇到冷启动问题。
+
+### 2026-06-19 — Bug 记录：IoU 冷启动导致 conf target 过低
+
+**根因**：原论文使用 ImageNet 预训练权重。预训练后的特征提取层已有一定表达能力，初始预测框不至于完全随机——IoU 起点远高于从零初始化。所以直接用 IoU 做 conf target 是可行的。
+
+但从零训练时 IoU ≈ 0.01，conf target ≈ 0.01。模型被告知"你置信度应该是 0.01"，准确但没有任何推力。死循环：框不好 → IoU 低 → target 低 → 没有改善 conf 的梯度 → 框继续不好。
+
+epoch 23 的诊断结果完全吻合这个推断：max score 从 0.049（conf target=1 那次）降到 0.013，说明模型正在正确汇报自己很差——但它需要一个最低推力来打破死循环。
+
+**修复**（`loss/yolo_loss.py`）：
+
+```python
+obj_conf_target = (bbox1_responsible.float() * torch.clamp(iou1, min=0.3) +
+                   bbox2_responsible.float() * torch.clamp(iou2, min=0.3)) * obj_mask.float()
+```
+
+`torch.clamp(iou, min=0.3)` 设了一个 0.3 的地板。框烂时 target = 0.3 给梯度推力，框好（IoU > 0.3）后 clamp 自动失效，target 切回纯 IoU。
+
+0.3 的选择：不能太高（会退化成 conf target=1 的旧 bug），不能太低（冷启动推力不够）。0.3 是一个合理的冷启动档位——告诉模型"先试试输出 0.3，然后根据框的质量调整"。
+
 ## Part 3: 训练历史数据（2026-06-01 ~ 2026-06-19）
 
 以下五次训练均发生在 mAP 评估模块集成之前。当时的训练只能通过 loss 判断收敛状态，缺乏检测精度的量化指标，因此这五轮本质上属于调试阶段——用于排查 loss 实现漏洞、验证学习率策略、测试数据量扩展效果。
