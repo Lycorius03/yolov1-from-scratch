@@ -37,7 +37,7 @@ if __name__ == "__main__":
     model = YOLOv1(S=7, B=2, C=20).to(DEVICE)
 
     # 改这里
-    WEIGHT_PATH = "runs/20260619_213313/best_model.pth"
+    WEIGHT_PATH = "runs/20260619_221213/best_model.pth"
     model.load_state_dict(torch.load(WEIGHT_PATH, map_location=DEVICE))
     model.eval()
 

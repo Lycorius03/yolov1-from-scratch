@@ -10,7 +10,7 @@ class YoloLoss(nn.Module):
     self.B = B
     self.C = C
     self.lambda_coord = 5
-    self.lambda_noobj = 0.5
+    self.lambda_noobj = 0.1
   #前向传播
   def forward(self, predictions, target):
     #重构模型输出的预测值的形状
