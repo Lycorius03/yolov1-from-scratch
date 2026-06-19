@@ -75,6 +75,6 @@ class YoloLoss(nn.Module):
     class_loss = torch.sum(obj_mask.unsqueeze(-1).float() * (class_pred - class_target) ** 2)
 
     #total Loss
-    total_loss = coord_loss + obj_conf_loss + noobj_conf_loss +class_loss
+    total_loss = coord_loss + obj_conf_loss + self.lambda_noobj * noobj_conf_loss + class_loss
 
     return total_loss / predictions.shape[0]
