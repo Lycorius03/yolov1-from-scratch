@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
+from pathlib import Path
 from utils.iou import compute_iou
+
+COMPONENT_LOG = str(Path(__file__).resolve().parent.parent / "loss_components.csv")
 
 class YoloLoss(nn.Module):
   def __init__(self, S, B, C):
@@ -76,8 +79,9 @@ class YoloLoss(nn.Module):
     #class Loss
     class_loss = torch.sum(obj_mask.unsqueeze(-1).float() * (class_pred - class_target) ** 2)
 
-    #total Loss
-    print(f"obj(x{self.lambda_obj})={self.lambda_obj * obj_conf_loss.item():.2f}  noobj(x{self.lambda_noobj})={self.lambda_noobj * noobj_conf_loss.item():.2f}  coord={coord_loss.item():.2f}  class={class_loss.item():.2f}")
+    with open(COMPONENT_LOG, 'a') as f:
+        f.write(f"{self.lambda_obj * obj_conf_loss.item():.4f},{self.lambda_noobj * noobj_conf_loss.item():.4f},{coord_loss.item():.4f},{class_loss.item():.4f}\n")
+
     total_loss = coord_loss + self.lambda_obj * obj_conf_loss + self.lambda_noobj * noobj_conf_loss + class_loss
 
     return total_loss / predictions.shape[0]

@@ -9,6 +9,7 @@ from datetime import datetime
 from dataset.voc_dataset import VOCDataset
 from models.yolov1 import YOLOv1
 from loss.yolo_loss import YoloLoss
+import loss.yolo_loss as yolo_loss_module
 from config import VOC2007_DIR, VOC2012_DIR, RUNS_DIR
 from utils.map import evaluate_map
 from utils.plot_utils import plot_training_curve
@@ -194,6 +195,11 @@ if __name__ == "__main__":
   with open(batch_log_file, 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(["epoch", "batch", "loss"])
+
+  comp_log_file = log_dir / "loss_components.csv"
+  with open(comp_log_file, 'w', newline='') as f:
+    f.write("obj_w,noobj_w,coord,class\n")
+  yolo_loss_module.COMPONENT_LOG = str(comp_log_file)
 
   print(f"训练日志保存至:{log_file}")
   # NUM_EPOCHS = 10
