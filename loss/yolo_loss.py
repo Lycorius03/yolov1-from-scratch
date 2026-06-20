@@ -12,7 +12,7 @@ class YoloLoss(nn.Module):
     self.B = B
     self.C = C
     self.lambda_coord = 1
-    self.lambda_noobj = 0.5
+    self.lambda_noobj = 0.1  # 从 0.5 降低：从零训练时需要给 obj 信号留出梯度空间
     self.lambda_obj = 3.0
 
   def forward(self, predictions, target):
@@ -78,8 +78,12 @@ class YoloLoss(nn.Module):
      
     class_loss = torch.sum(obj_mask.unsqueeze(-1).float() * (class_pred - class_target) ** 2)
 
+    # Mean confidence of responsible bboxes in obj cells (diagnostic)
+    n_obj = obj_mask.float().sum() + 1e-8
+    mean_conf_obj = (obj_conf_pred.abs().sum() / n_obj).item()
+
     with open(COMPONENT_LOG, 'a') as f:
-        f.write(f"{self.lambda_obj * obj_conf_loss.item():.4f},{self.lambda_noobj * noobj_conf_loss.item():.4f},{coord_loss.item():.4f},{class_loss.item():.4f}\n")
+        f.write(f"{self.lambda_obj * obj_conf_loss.item():.4f},{self.lambda_noobj * noobj_conf_loss.item():.4f},{coord_loss.item():.4f},{class_loss.item():.4f},{mean_conf_obj:.6f}\n")
 
     total_loss = coord_loss + self.lambda_obj * obj_conf_loss + self.lambda_noobj * noobj_conf_loss + class_loss
     return total_loss / predictions.shape[0]

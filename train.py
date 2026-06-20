@@ -198,7 +198,7 @@ if __name__ == "__main__":
 
   comp_log_file = log_dir / "loss_components.csv"
   with open(comp_log_file, 'w', newline='') as f:
-    f.write("obj_w,noobj_w,coord,class\n")
+    f.write("obj_w,noobj_w,coord,class,mean_conf_obj\n")
   yolo_loss_module.COMPONENT_LOG = str(comp_log_file)
 
   print(f"训练日志保存至:{log_file}")
