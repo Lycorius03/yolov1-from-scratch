@@ -29,10 +29,10 @@ def collate_fn(batch):
 
 #学习率
 def get_lr(epoch):
-  if epoch <= 20:
+  if epoch <= 5:
       start_lr = 1e-4
       end_lr = 5e-4
-      return start_lr + (end_lr - start_lr) * (epoch - 1) / 20
+      return start_lr + (end_lr - start_lr) * (epoch - 1) / 5
   elif epoch <= 80:
       return 5e-4
   elif epoch <= 135:

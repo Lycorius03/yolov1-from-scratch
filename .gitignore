@@ -34,3 +34,15 @@ Thumbs.db
 runs/
 *.pth
 *.csv
+
+# Claude Code
+.claude/
+memory/
+
+# 临时测试脚本
+diagnose_*.py
+mode_check.py
+quick_check.py
+cross_validate.py
+debug_predictions.py
+test_model.py

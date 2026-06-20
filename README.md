@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.8+-blue?style=flat-square&logo=python)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-orange?style=flat-square&logo=pytorch)
 ![Dataset](https://img.shields.io/badge/Dataset-Pascal%20VOC%202007%20%2B%202012-green?style=flat-square)
-![Status](https://img.shields.io/badge/Status-Phase%207%20完成-brightgreen?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Phase%207%20完成%20%7C%20调试中-yellow?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
 
 ## 从零手写 YOLOv1 —— 不依赖任何检测框架，逐行理解目标检测的底层逻辑
@@ -68,7 +68,7 @@
 
 ### 网络架构设计哲学
 
-YOLOv1 的检测网络由 **24 层卷积特征提取主干** 和 **2 层全连接检测头** 组成。Conv1-2（7×7 conv → maxpool → 3×3 conv → maxpool）做初始特征提取与快速降采样；Conv3-16 借鉴 GoogLeNet 的 bottleneck 思想，通过 **1×1 卷积降维 + 3×3 卷积扩展通道数** 的交替堆叠，在 112×112 到 7×7 的各级特征尺度上逐步加深通道（128→1024）；Conv23-24 在 7×7 分辨率下做最终的特征整合。全连接部分先将 7×7×1024 展平后投影到 4096 维，再直接回归到 1470 维的检测输出。
+YOLOv1 的检测网络由 **24 层卷积特征提取主干** 和 **2 层全连接检测头** 组成。每层卷积后均配有 **BatchNorm** 和 **LeakyReLU(0.1)** 激活——BatchNorm 对从零训练至关重要，它归一化各层激活分布，防止梯度在 24 层深度网络中消失或爆炸，同时抑制模型陷入固定模板输出（mode collapse）。Conv1-2（7×7 conv → maxpool → 3×3 conv → maxpool）做初始特征提取与快速降采样；Conv3-16 借鉴 GoogLeNet 的 bottleneck 思想，通过 **1×1 卷积降维 + 3×3 卷积扩展通道数** 的交替堆叠，在 112×112 到 7×7 的各级特征尺度上逐步加深通道（128→1024）；Conv23-24 在 7×7 分辨率下做最终的特征整合。全连接部分先将 7×7×1024 展平后投影到 4096 维，再直接回归到 1470 维的检测输出。
 
 ### 核心超参数配置
 
@@ -103,9 +103,9 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 #### 四项损失分解
 
-- **坐标损失（coord loss）**：仅对负责预测的 bbox 计算。中心坐标 (x, y) 使用线性误差，宽高 (w, h) 先取平方根再计算误差。√wh 的作用是压缩大框的梯度尺度，防止大尺寸框主导整体 loss。
-- **置信度损失（obj / noobj loss）**：分为有物体和无物体两部分。负责框学习真实置信度（IoU 相关），非负责框被压制到接近 0。两者通过不同权重（λ_noobj = 0.5）平衡。
-- **分类损失（class loss）**：仅在有物体的 grid cell 上计算，使用类别交叉熵。分类和定位共享骨干特征，但在输出层被解耦为独立的回归头和分类头。
+- **坐标损失（coord loss）**：仅对负责预测的 bbox 计算。中心坐标 (x, y) 使用线性误差，宽高 (w, h) 先取平方根再计算误差。√wh 的作用是压缩大框的梯度尺度，防止大尺寸框主导整体 loss。权重 `λ_coord = 1`（loss 已按 batch 归一化）。
+- **置信度损失（obj / noobj loss）**：分为有物体和无物体两部分。负责框学习真实置信度（IoU ≥ 0.3 时用实际 IoU，< 0.3 时用 0.3 冷启动地板），非负责框被压制到接近 0。两者通过权重 `λ_obj = 3.0` 和 `λ_noobj = 0.05` 平衡——后者显著低于原论文的 0.5，因为从零训练时每图 obj:noobj 信号比约 3:95，过高的 noobj 权重会压死置信度。
+- **分类损失（class loss）**：在有物体的 grid cell 上计算 MSE；在无物体的 grid cell 上施加极小的均匀化正则（权重 0.001），防止模型坍缩到"永远预测 person"。
 
 #### 责任分配机制（Hard Assignment）
 
@@ -119,7 +119,9 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 ## 训练与调试历程
 
-从零复现 YOLOv1 的过程并非一帆风顺，而且仍在进行中。学习率策略经历了多轮调整，训练过程踩过一些不易察觉的坑，每一步的思考都在日志中留下了痕迹。
+从零复现 YOLOv1 的过程并非一帆风顺，而且仍在进行中。从学习率策略、Loss 权重平衡、到架构层面的 BatchNorm 缺失导致 mode collapse，发现了 8 个 Bug。每一步的思考都在日志中留下了痕迹。
+
+当前训练配置：warmup 5 epoch（1e-4→5e-4），主干 80 epoch（5e-4），收敛 55 epoch（2e-4），微调 30 epoch（7e-5）。λ_coord=1, λ_obj=3.0, λ_noobj=0.05。
 
 > 📖 **[开发者日志（DEVLOG.md）](DEVLOG.md)** —— 实时记录的学习笔记，伴随项目推进持续更新
 
@@ -167,6 +169,7 @@ yolov1-from-scratch/
 ├── run_detect.py                 # 推理入口脚本（单图/目录/验证集采样，智能检测框绘制）
 ├── detect.py                     # 图像推理、批量检测、预测可视化（纯函数库）
 ├── test_model.py                 # 模型前向传播测试（Smoke Test）
+├── overfit_test.py               # 过拟合回归测试（1 图 500 步，验证流水线正确性）
 ├── config.py                     # 统一路径配置（pathlib，本地/云端一键切换）
 ├── lr_finder.png                 # LR Finder 结果图
 ├── lr_finder_defect.png          # 第二版 LR Finder 曲线
@@ -289,4 +292,4 @@ python run_detect.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-19
+持续更新中 · Last updated: 2026-06-21

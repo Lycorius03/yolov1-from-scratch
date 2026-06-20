@@ -13,76 +13,101 @@ class YOLOv1(nn.Module):
     # print(f"YOLOv1模型初始化完成<(￣︶￣)↗[GO!] → S={S}, B={B}, C={C}")
 
   #========================================================卷积层========================================================
+    # 原论文大量使用 BatchNorm，从零训练必须加，否则 24 层纯卷积梯度传不下去
     self.conv_layers = nn.Sequential(
       #Conv1-2负责粗提取特征，降低图片尺寸也为降低硬件负担
       #Conv1 448 × 448 → 224 × 224
-      nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3),
+      nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False),
+      nn.BatchNorm2d(64),
       nn.LeakyReLU(0.1),
       nn.MaxPool2d(kernel_size=2, stride=2),
-  
+
       #Conv2 224 × 224 → 112 × 112
-      nn.Conv2d(in_channels=64, out_channels=192, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=64, out_channels=192, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(192),
       nn.LeakyReLU(0.1),
       nn.MaxPool2d(kernel_size=2, stride=2),
 
       #Conv3-6 112 × 112 → 56 × 56 → 28 × 28
-      nn.Conv2d(in_channels=192, out_channels=128, kernel_size=1),
+      nn.Conv2d(in_channels=192, out_channels=128, kernel_size=1, bias=False),
+      nn.BatchNorm2d(128),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(256),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=256, out_channels=256, kernel_size=1, stride=1),
+      nn.Conv2d(in_channels=256, out_channels=256, kernel_size=1, stride=1, bias=False),
+      nn.BatchNorm2d(256),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(512),
       nn.LeakyReLU(0.1),
       nn.MaxPool2d(kernel_size=2, stride=2),
 
-      #Conv7-16 28 × 28 → 14 × 14 
+      #Conv7-16 28 × 28 → 14 × 14
       # (1×1,256 + 3×3,512) ×4
       # 输出 14×14×1024
-      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1),
+      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1, bias=False),
+      nn.BatchNorm2d(256),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(512),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1),
+      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1, bias=False),
+      nn.BatchNorm2d(256),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(512),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1),
+      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1, bias=False),
+      nn.BatchNorm2d(256),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(512),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1),
+      nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, stride=1, bias=False),
+      nn.BatchNorm2d(256),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(512),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, stride=1),
+      nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, stride=1, bias=False),
+      nn.BatchNorm2d(512),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(1024),
       nn.LeakyReLU(0.1),
       nn.MaxPool2d(kernel_size=2, stride=2),
 
       #Conv17-22 14 × 14 → 7 × 7
       # (1×1,512 + 3×3,1024) ×2
       # 下采样到 7×7
-      nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=1, stride=1),
+      nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=1, stride=1, bias=False),
+      nn.BatchNorm2d(512),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(1024),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=1, stride=1),
+      nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=1, stride=1, bias=False),
+      nn.BatchNorm2d(512),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(1024),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(1024),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=2, padding=1),
+      nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=2, padding=1, bias=False),
+      nn.BatchNorm2d(1024),
       nn.LeakyReLU(0.1),
 
-      #Conv23-24 
+      #Conv23-24
       # 最终特征提取
       # 输出 7×7×1024
-      nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(1024),
       nn.LeakyReLU(0.1),
-      nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=1, padding=1),
+      nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, stride=1, padding=1, bias=False),
+      nn.BatchNorm2d(1024),
       nn.LeakyReLU(0.1)
     )
 
