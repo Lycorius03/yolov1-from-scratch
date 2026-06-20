@@ -8,80 +8,78 @@ COMPONENT_LOG = str(Path(__file__).resolve().parent.parent / "loss_components.cs
 class YoloLoss(nn.Module):
   def __init__(self, S, B, C):
     super().__init__()
-    
     self.S = S
     self.B = B
     self.C = C
     self.lambda_coord = 1
     self.lambda_noobj = 0.5
     self.lambda_obj = 3.0
-  #前向传播
+
   def forward(self, predictions, target):
-    #重构模型输出的预测值的形状
     predictions = predictions.reshape(-1, self.S, self.S, self.B * 5 + self.C)
 
-    #提取两个bbox里的预测值
     bbox1_pred = predictions[..., 0:5]
     bbox2_pred = predictions[..., 5:10]
     class_pred = predictions[..., 10:]
 
-    #从target里面提取真实值
     bbox1_target = target[..., 0:5]
     bbox2_target = target[..., 5:10]
     class_target = target[..., 10:] 
 
-    #计算两个bbox和target的IoU
-    iou1 = compute_iou(bbox1_pred[..., :4], bbox1_target[..., :4])
-    iou2 = compute_iou(bbox2_pred[..., :4], bbox2_target[..., :4])
+    # Convert cell-relative coordinates to image-relative coordinates for IoU calculation
+    device = predictions.device
+    grid_y, grid_x = torch.meshgrid(
+        torch.arange(self.S, device=device),
+        torch.arange(self.S, device=device),
+        indexing="ij"
+    )
+    grid_x = grid_x.unsqueeze(0).unsqueeze(-1).float()
+    grid_y = grid_y.unsqueeze(0).unsqueeze(-1).float()
 
-    #找responsible box
+    def to_image_coords(bbox):
+        cx_img = (bbox[..., 0:1] + grid_x) / self.S
+        cy_img = (bbox[..., 1:2] + grid_y) / self.S
+        w_img = torch.abs(bbox[..., 2:3])
+        h_img = torch.abs(bbox[..., 3:4])
+        return torch.cat([cx_img, cy_img, w_img, h_img], dim=-1)
+
+    iou1 = compute_iou(to_image_coords(bbox1_pred[..., :4]), to_image_coords(bbox1_target[..., :4]))
+    iou2 = compute_iou(to_image_coords(bbox2_pred[..., :4]), to_image_coords(bbox2_target[..., :4]))
+
     bbox1_responsible = (iou1 >= iou2)
     bbox2_responsible = ~bbox1_responsible
 
-    #扩展维度，因bbox1_responsible这类的形状是(batch_size, 7, 7),与bbox_pred这类形状为(batch_size, 7, 7, 5)维度不同，相差一个维度
     bbox1_resp_mask = bbox1_responsible.unsqueeze(-1)
     bbox2_resp_mask = bbox2_responsible.unsqueeze(-1)
 
-    #找到obj_mask和noobj_mask
     obj_mask = target[..., 4] == 1.0
     noobj_mask = ~obj_mask
-
-    #扩展维度
     obj_mask_5 = obj_mask.unsqueeze(-1)
 
-    #找到responsible和有物体的预测框和真实框
     resp_pred = (bbox1_resp_mask & obj_mask_5) * bbox1_pred + (bbox2_resp_mask & obj_mask_5) * bbox2_pred
     resp_target = obj_mask_5 * bbox1_target
 
-    #xy Loss
     xy_loss = torch.sum((resp_pred[..., 0:2] - resp_target[..., 0:2]) ** 2)
-
-    #wh Loss
     wh_loss = torch.sum((torch.sqrt(torch.abs(resp_pred[..., 2:4]) + 1e-6) - torch.sqrt(torch.abs(resp_target[..., 2:4]) + 1e-6)) ** 2)
-
-    #coord Loss
     coord_loss = self.lambda_coord * (xy_loss + wh_loss)
 
-    #obj confidence Loss
+    # Object confidence loss
     obj_conf_target = (bbox1_responsible.float() * torch.clamp(iou1, min=0.3) + bbox2_responsible.float() * torch.clamp(iou2, min=0.3)) * obj_mask.float()
     obj_conf_pred = ((bbox1_responsible * bbox1_pred[..., 4]) + (bbox2_responsible * bbox2_pred[..., 4])) * obj_mask
     obj_conf_loss = torch.sum((obj_conf_pred - obj_conf_target.detach()) ** 2)
 
-    #noobj confidence Loss
+    # No-object confidence loss
     bbox1_noobj_mask = noobj_mask | bbox2_responsible
     bbox2_noobj_mask = noobj_mask | bbox1_responsible
 
     bbox1_noobj_conf_loss = torch.sum(bbox1_noobj_mask.float() * bbox1_pred[..., 4] ** 2)
     bbox2_noobj_conf_loss = torch.sum(bbox2_noobj_mask.float() * bbox2_pred[..., 4] ** 2)
-
     noobj_conf_loss = bbox1_noobj_conf_loss + bbox2_noobj_conf_loss
      
-    #class Loss
     class_loss = torch.sum(obj_mask.unsqueeze(-1).float() * (class_pred - class_target) ** 2)
 
     with open(COMPONENT_LOG, 'a') as f:
         f.write(f"{self.lambda_obj * obj_conf_loss.item():.4f},{self.lambda_noobj * noobj_conf_loss.item():.4f},{coord_loss.item():.4f},{class_loss.item():.4f}\n")
 
     total_loss = coord_loss + self.lambda_obj * obj_conf_loss + self.lambda_noobj * noobj_conf_loss + class_loss
-
     return total_loss / predictions.shape[0]

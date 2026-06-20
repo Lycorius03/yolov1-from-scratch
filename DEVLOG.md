@@ -452,6 +452,193 @@ total_loss = coord_loss + self.lambda_obj * obj_conf_loss
 
 为什么不像 YOLOv1 原论文那样同时给 odbj_conf_loss 加 λ_noobj=0.5 的平衡？因为原论文的 obj/noobj 平衡是针对预训练模型设计的，从零训练需要更强的 obj 推力。这本质上不是"改动原论文设计"，而是"还原原论文设计中隐含但缺失的前提条件"。
 
+### 2026-06-20 — Bug 记录：训练 IoU 计算中的坐标尺度不匹配
+
+**发现过程**：λ_obj 调整后重新训练 170 epochs。train loss 降至 ~4.8 后停滞，mAP 仍为 0。编写诊断脚本对 `best_model.pth` 做逐阈值推理，发现一个致命规律：**无论阈值设为多少，模型对所有输入图像输出完全相同的 2-14 个预测框，每个框的 max confidence 精确锁死在 0.28**。
+
+0.28 不是随机数。结合之前的 obj/noobj 信号均衡分析，如果 IoU 计算有 bug 导致 obj_conf_target 被 clamp 地板锁死，那 0.28 就是 obj_loss（推 conf 往 0.3）和 noobj_loss（推 conf 往 0）在当前 λ_obj=3.0、λ_noobj=0.1 权重配置下的数学均衡点。
+
+于是回头逐行审查 `compute_iou()` 的输入数据格式。
+
+**根因**（`loss/yolo_loss.py` 第 34-35 行）：
+
+```python
+# 修复前
+iou1 = compute_iou(bbox1_pred[..., :4], bbox1_target[..., :4])
+iou2 = compute_iou(bbox2_pred[..., :4], bbox2_target[..., :4])
+```
+
+`compute_iou()` 期望所有坐标在同一尺度下（`cx, cy, w, h` 均为 image-relative，范围 0~1）。但传入的 bbox 格式是混合坐标系：
+
+| 坐标分量 | 实际尺度 | 范围 |
+| :--- | :--- | :--- |
+| `cx_cell, cy_cell` | cell-relative（单个 grid cell 的偏移） | 0~1 ≡ 图宽的 1/7 |
+| `w, h` | image-relative（整张图的比例） | 0~1 ≡ 全图 |
+
+`compute_iou()` 计算 `cx - w/2` 时，从 cell 尺度的中心坐标减去 image 尺度的半宽——两种不同单位的量直接做减法，等同于把物体的宽高在计算中被等比缩小了 7 倍。
+
+**后果——完整的因果链**：
+
+1. 在扭曲的混合坐标系中，`w/2` 只有真实值的 1/7。预测框和真实框在 x/y 方向上的跨度被严重低估
+2. 即使预测框只偏离真实框一个微小的 cell 偏移（如 `cx_cell=0.5` vs `0.55`），两个框的 x 范围在扭曲空间中也**完全不重叠**
+3. `inter_w = clamp(inter_x2 - inter_x1, min=0)` → **0**，导致 `IoU = 0`
+4. 诊断脚本实测验证：对于一个小物体（w=0.08, h=0.10 image-relative）且预测中心有微小偏移的情况，混合坐标下的 IoU 精确等于 **0.000000**，而正确坐标下 IoU = **0.5949**
+
+IoU = 0 触发之前引入的冷启动保护：
+
+```python
+obj_conf_target = clamp(iou, min=0.3) * obj_mask
+```
+
+→ 不论网络预测的框有多准，IoU 永远是 0
+→ `obj_conf_target` 被 `clamp(min=0.3)` 锁死在 0.3
+→ 模型永远被告知"你的置信度应该是 0.3"
+→ 网络学到的最优策略就是输出 conf ≈ 0.28（obj/noobj 均衡点）
+→ **confidence 永远无法突破 0.4 的检测阈值**
+→ **mAP 全程为 0**
+
+这解释了此前所有训练中观察到的现象：loss 在 ~7 附近进入平台、max score 卡在 0.03-0.28 区间、每张图输出固定的框数和 score——模型并非没有学习，而是在一个数学上不可能赢的游戏中找到了唯一的纳什均衡。
+
+**修复**（`loss/yolo_loss.py`）：
+
+```python
+# 创建 grid 偏移映射
+device = predictions.device
+grid_y, grid_x = torch.meshgrid(
+    torch.arange(self.S, device=device),
+    torch.arange(self.S, device=device),
+    indexing="ij"
+)
+grid_x = grid_x.unsqueeze(0).unsqueeze(-1).float()  # (1, S, S, 1)
+grid_y = grid_y.unsqueeze(0).unsqueeze(-1).float()
+
+def to_image_coords(bbox):
+    """将 bbox 从 cell-relative 转换到 image-relative 坐标。
+    Input:  [cx_cell, cy_cell, w_img, h_img]
+    Output: [cx_img,  cy_img,  w_img,  h_img]
+    """
+    cx_img = (bbox[..., 0:1] + grid_x) / self.S   # cell偏移 + grid位置 → 全图坐标
+    cy_img = (bbox[..., 1:2] + grid_y) / self.S
+    w_img = torch.abs(bbox[..., 2:3])
+    h_img = torch.abs(bbox[..., 3:4])
+    return torch.cat([cx_img, cy_img, w_img, h_img], dim=-1)
+
+# 转换后再计算 IoU
+iou1 = compute_iou(to_image_coords(bbox1_pred[..., :4]),
+                   to_image_coords(bbox1_target[..., :4]))
+iou2 = compute_iou(to_image_coords(bbox2_pred[..., :4]),
+                   to_image_coords(bbox2_target[..., :4]))
+```
+
+关键点说明：
+
+- `cx_img = (cx_cell + grid_col) / S`：cell 偏移（0~1）加上 grid 列号（0~6），除以 S=7，得到 0~1 的全图相对坐标
+- `torch.abs(w)`：预测的 w/h 可能为负（网络输出无约束），取绝对值防止 `w/2` 符号翻转
+- `to_image_coords` 同时对 prediction 和 target 做转换，保证两者在统一坐标系内比较
+
+**验证**：
+
+单元测试 `utils/test_iou_scale_fix.py` 覆盖三种场景：
+
+| 场景 | Buggy IoU（混合坐标） | Fixed IoU（图像坐标） |
+| :--- | :--- | :--- |
+| 小物体 + 微小中心偏移 | **0.0000** | 0.5949 |
+| 近完美预测（offset=0.02） | **0.0000** | 0.8257 |
+| 完美预测（pred == target） | 1.0000 | 1.0000 |
+
+**与前序 Bug 的关系**：这个 Bug 解释了为什么 conf target=IoU 的修复（2026-06-19）和 λ_obj 调整（2026-06-20）之后，模型依然无法突破。此前每一步修复都正确且必要，但都建立在一个有缺陷的 IoU 计算之上——IoU 永远是 0，所有围绕 confidence target 的设计都无法发挥作用。修复 IoU 坐标转换后，前序所有修复（IoU target、clamp 地板、λ_obj 权重）才能第一次真正影响训练。
+
+---
+
+### 2026-06-20 — Bug 记录：标注坐标归一化未使用原图尺寸
+
+**发现过程**：修复 IoU 坐标转换后，loss 函数侧的坐标系已经一致。但随即想到另一个问题——训练数据的标签坐标本身是否准确？如果标签一开始就编码到了错误的 grid cell，那 IoU 算得再准也是对着错误的 target 在算。
+
+**根因**（`dataset/voc_dataset.py` 第 108-125 行）：
+
+```python
+# 修复前
+def _encode_target(self, boxes, labels, S=7, image_size=448):
+    cx = (xmin + xmax) / 2
+    cy = (ymin + ymax) / 2
+    w = xmax - xmin
+    h = ymax - ymin
+
+    cx /= image_size   # ← 始终除以 448
+    cy /= image_size
+    w /= image_size
+    h /= image_size
+```
+
+Pascal VOC 的 XML 标注坐标是相对于**原始图片分辨率**的像素值。常见 VOC 图片尺寸有 $500 \times 375$、$500 \times 333$、$375 \times 500$ 等，只有少数恰好是 $448 \times 448$。但代码在 DataLoader 的 `transform` 中将图片 Resize 到了 $448 \times 448$，而标签归一化却始终除以固定值 448。
+
+对于一张 $500 \times 375$ 的图片：
+
+- `cx_new = 200 / 500 = 0.40`（正确）
+- `cx_old = 200 / 448 = 0.446`（错误，偏大 11.5%）
+- `cy_new = 187.5 / 375 = 0.50`（正确）
+- `cy_old = 187.5 / 448 = 0.419`（错误，偏小 16.3%）
+
+中心坐标误差高达 `dx=0.046, dy=0.081`。对于 7×7 的网格，每个 cell 跨度为 1/7 ≈ 0.143。dy=0.081 的误差相当于**超过半个 cell**，足以将物体编码到错误的 grid cell。
+
+单元测试验证了一个典型场景：
+
+| 对比项 | 旧代码（÷448） | 新代码（÷500/375） |
+| :--- | :--- | :--- |
+| cx | 0.4464 | 0.4000 |
+| cy | 0.4185 | 0.5000 |
+| **grid cell** | **(row=2, col=3)** | **(row=3, col=2)** |
+
+物体被编码到了**完全不同的 grid cell**——行和列都错了。
+
+**后果**：
+
+- Resize 后的图片中，物体视觉特征出现在某个位置，但标签告诉模型物体在另一个位置
+- 模型被要求学会"看到 A 处的猫，在 B 处输出检测框"——一个不可能的任务
+- 即使用最准确的 IoU 计算，也是在对着**错位的标签**做监督
+
+**修复**（`dataset/voc_dataset.py`）：
+
+`__getitem__` 中在 transform 之前获取原图尺寸：
+
+```python
+image = Image.open(image_path).convert('RGB')
+orig_w, orig_h = image.size   # ← 在 Resize 之前获取
+
+# ... transform ...
+
+target = self._encode_target(boxes, labels, orig_w, orig_h)
+```
+
+`_encode_target` 签名变更：
+
+```python
+def _encode_target(self, boxes, labels, orig_w, orig_h, S=7):
+    cx /= orig_w    # 用原图宽度归一化 x 坐标
+    cy /= orig_h    # 用原图高度归一化 y 坐标
+    w /= orig_w     # 宽度只和原图宽度有关
+    h /= orig_h     # 高度只和原图高度有关
+```
+
+`_encode_raw_target` 同步修改，接收 `orig_w, orig_h` 参数。
+
+**为什么 w 用 orig_w、h 用 orig_h**：YOLOv1 的 bbox 回归目标中，w 和 h 分别是框宽和框高占全图宽和全图高的比例。图片被 Resize 到 448×448 后，宽高比被拉伸，但标签的归一化应该在 Resize 之前完成——因为网络学习的是"框占全图百分比"这个几何属性，而非像素宽高。w 只与原始宽度有关，h 只与原始高度有关。
+
+**验证**：单元测试覆盖了非正方形图像（500×375）、正方形非 448 图像、以及 448×448 图像（确保向后兼容）。448×448 图像的新旧结果完全一致。
+
+---
+
+**两个 Bug 的联合效应**：
+
+至此可以拼出 mAP=0 的完整因果链：
+
+1. **标注坐标错误**（Bug 2）→ 网格标签错位，模型对着错误的位置学
+2. **IoU 计算尺度错误**（Bug 1）→ obj_conf_target 被 clamp 锁死在 0.3
+3. **conf target=IoU + clamp(0.3)**（之前的设计）→ 理论上正确，但因 Bug 1 导致 IoU 恒为 0，clamp 从未真正"失效"
+4. **λ_obj=3.0**（之前的调整）→ 正确的信号平衡，但增加的只是"推 conf 往 0.3"的力度
+
+每一步修复都是正确且必要的，但 Bug 1 和 Bug 2 位于整个训练流水线的最底层——标注编码和 IoU 计算是所有后续 Loss 设计的前提。这两个根基修正后，前序所有 Loss 层面的优化才第一次有机会真正发挥作用。当然，具体效果如何，mAP 能不能突破 0、confidence 能不能跨过 0.3 门槛，还得等下一轮训练跑完才知道。
+
 ## Part 3: 训练历史数据（2026-06-01 ~ 2026-06-19）
 
 以下五次训练均发生在 mAP 评估模块集成之前。当时的训练只能通过 loss 判断收敛状态，缺乏检测精度的量化指标，因此这五轮本质上属于调试阶段——用于排查 loss 实现漏洞、验证学习率策略、测试数据量扩展效果。
@@ -499,4 +686,4 @@ total_loss = coord_loss + self.lambda_obj * obj_conf_loss
 
 ---
 
-持续更新中 · Last updated: 2026-06-19
+持续更新中 · Last updated: 2026-06-20
