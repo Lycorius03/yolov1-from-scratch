@@ -35,6 +35,7 @@ def plot_training_curve(log_file: str, save_path:str=None):
   ax2 = ax1.twinx()
   ax2.plot(epochs, mAPs, 'g-', label='mAP@0.5', linewidth=2)
   ax2.set_ylabel('mAP', color='green')
+  ax2.set_ylim(0, 1)
   ax2.tick_params(axis='y', labelcolor='green')
   ax2.legend(loc='upper right')
 

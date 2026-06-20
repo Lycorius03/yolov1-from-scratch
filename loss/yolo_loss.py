@@ -9,8 +9,8 @@ class YoloLoss(nn.Module):
     self.S = S
     self.B = B
     self.C = C
-    self.lambda_coord = 5
-    self.lambda_noobj = 0.1
+    self.lambda_coord = 1
+    self.lambda_noobj = 0.5
     self.lambda_obj = 3.0
   #前向传播
   def forward(self, predictions, target):
@@ -77,6 +77,7 @@ class YoloLoss(nn.Module):
     class_loss = torch.sum(obj_mask.unsqueeze(-1).float() * (class_pred - class_target) ** 2)
 
     #total Loss
+    print(f"obj(x{self.lambda_obj})={self.lambda_obj * obj_conf_loss.item():.2f}  noobj(x{self.lambda_noobj})={self.lambda_noobj * noobj_conf_loss.item():.2f}  coord={coord_loss.item():.2f}  class={class_loss.item():.2f}")
     total_loss = coord_loss + self.lambda_obj * obj_conf_loss + self.lambda_noobj * noobj_conf_loss + class_loss
 
     return total_loss / predictions.shape[0]
