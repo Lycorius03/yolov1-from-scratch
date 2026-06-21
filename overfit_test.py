@@ -1,4 +1,4 @@
-"""Overfit test with per-step logging to CSV, on 3 random images."""
+# Overfit test with per-step logging to CSV, on 3 random images.
 import torch
 import torch.optim as optim
 import torchvision.transforms as transforms

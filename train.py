@@ -80,7 +80,8 @@ if __name__ == "__main__":
   C = 20
   BATCH_SIZE = 16
   NUM_EPOCHS = 170
-  LEARNING_RATE = 3e-4          # η_max: 5e-4爆炸, 2e-4稳定, 取中间
+  # η_max: 5e-4爆炸, 2e-4稳定, 取中间
+  LEARNING_RATE = 3e-4
   WARMUP_EPOCHS = 5
   DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -163,7 +164,8 @@ if __name__ == "__main__":
     model.parameters(),
     lr=LEARNING_RATE,
     momentum=0.9,
-    weight_decay=1e-3           # 5e-4→1e-3，对抗8x过拟合
+    # 5e-4→1e-3，对抗8x过拟合
+    weight_decay=1e-3
   )
 
   # Warmup 5轮: 1e-4 → 3e-4, 然后切入SGDR
