@@ -922,4 +922,76 @@ nn.LeakyReLU(0.1),
 
 ---
 
-持续更新中 · Last updated: 2026-06-21 (Mode Collapse + BatchNorm 修复)
+### 2026-06-21 — 修复记录：数据划分泄露 + 每 Epoch mAP 评估
+
+**发现过程**：Mode Collapse 修复后复盘训练配置，重新审视数据划分方式。发现了一个早该发现的问题——**验证集被训练集完全包含**。
+
+**数据泄露的诊断**：
+
+VOC2007 和 VOC2012 的 `ImageSets/Main/` 下有三个文件：
+- `train.txt`：纯训练图片
+- `val.txt`：纯验证图片
+- `trainval.txt`：train + val 合并
+
+之前的代码：
+```python
+# voc_dataset.py（修复前）
+if self.split == 'train':
+    txt_file = ... / 'trainval.txt'   # ← 读了 train+val 的全部数据
+else:
+    txt_file = ... / 'val.txt'        # ← val 是 trainval 的子集
+```
+
+数学上 `trainval = train ∪ val`，因此 `val ⊂ trainval`——验证集的 **8333 张图片全部被训练过**。任何 mAP 数值都是"考原题"得出的，对泛化能力的评估毫无意义。
+
+**修复方案——还原论文做法**：
+
+论文原文：**训练用 VOC2007 trainval + VOC2012 trainval，评估用 VOC2007 test**。
+
+之前无法这么做是因为只下载了 `VOCtrainval_06-Nov-2007.tar` 和 `VOCtrainval_11-May-2012.tar`，缺少 `VOCtest_06-Nov-2007.tar`（VOC2007 测试集）。补齐后：
+
+1. 解压 `VOCtest_06-Nov-2007.tar` 到 `VOCdevkit/` 目录
+2. 测试集自动合并进 `VOC2007/`：
+   - `JPEGImages/`：5011 + 4952 = **9963** 张
+   - `Annotations/`：5011 + 4952 = **9963** 个 XML
+   - `ImageSets/Main/test.txt`：**4952 行**（与 trainval 完全隔离）
+
+**代码修改**：
+
+`dataset/voc_dataset.py`：
+```python
+if self.split == 'train':
+    txt_file = ... / 'trainval.txt'     # 训练：全量 train+val
+elif self.split == 'test':              # 新增
+    txt_file = ... / 'test.txt'         # 评估：完全独立
+else:
+    txt_file = ... / 'val.txt'          # 保留，向后兼容
+```
+
+`train.py` 验证集改为：
+```python
+val_dataset = VOCDataset(
+    root_dirs=[str(VOC2007_DIR)],       # test.txt 仅在 VOC2007 中存在
+    split='test'                        # 独立于训练数据
+)
+```
+
+**最终数据划分**：
+
+| 集合 | 图片数 | 来源 |
+| :--- | :--- | :--- |
+| 训练集 | **16,551** | VOC2007 trainval + VOC2012 trainval |
+| 评估集 | **4,952** | VOC2007 test（完全独立） |
+| 训练 ∩ 评估 | **0** | ✓ 无数据泄露 |
+
+**额外改进：每 Epoch 评估 mAP**
+
+此前 mAP 仅在 `epoch % 5 == 0` 时评估，其余 epoch 的 CSV 中 mAP 列填 0.0。现改为每 epoch 都运行 `evaluate_map()` 并在终端输出 `mAP@0.5: {value}`。训练曲线图上 mAP 曲线从稀疏变为连续，无需修改绘图代码。
+
+**影响评估**：
+
+这是修了 8 个 Bug 后第一次能在**完全正确的数据划分**下评估模型。此前所有训练的 mAP 数值（包括非零的 epoch）都是在验证集泄漏的前提下的结果——模型的真实泛化能力可能比记录中更弱，也可能更强（训练数据不再被验证集"污染"，模型需要在完全未见过的 test 集上证明自己）。
+
+---
+
+持续更新中 · Last updated: 2026-06-21 (数据泄漏修复 + 每 Epoch mAP 评估)

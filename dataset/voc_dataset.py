@@ -28,6 +28,8 @@ class VOCDataset(Dataset):
     for root_dir in self.root_dirs:
       if self.split == 'train':
         txt_file = Path(root_dir) / 'ImageSets' / 'Main' / 'trainval.txt'
+      elif self.split == 'test':
+        txt_file = Path(root_dir) / 'ImageSets' / 'Main' / 'test.txt'
       else:
         txt_file = Path(root_dir) / 'ImageSets' / 'Main' / 'val.txt'
 

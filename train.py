@@ -116,31 +116,29 @@ if __name__ == "__main__":
     split='train'
   )
 
-  #验证集
+  #验证集——VOC2007 test（独立于训练，无数据泄露）
   val_encoded_dataset = VOCDataset(
         root_dirs=[
         str(VOC2007_DIR),
-        str(VOC2012_DIR)
     ],
     transform=transforms.Compose([
       transforms.Resize((448, 448)),
       transforms.ToTensor(),
     ]),
-    split='val',
+    split='test',
     use_encoded_target=True
   )
 
-  #验证集
+  #mAP评估集——VOC2007 test
   val_raw_dataset = VOCDataset(
         root_dirs=[
         str(VOC2007_DIR),
-        str(VOC2012_DIR)
     ],
     transform=transforms.Compose([
       transforms.Resize((448, 448)),
       transforms.ToTensor(),
     ]),
-    split='val',
+    split='test',
     use_encoded_target=False
   )
 
@@ -229,11 +227,9 @@ if __name__ == "__main__":
 
     print(f"train_loss: {train_loss:.4f} val_loss: {val_loss:.4f}")
     
-    #mAP
-    mAP = 0.0
-    if epoch % 5 == 0:
-      mAP = evaluate_map(model=model, loader=val_raw_loader, device=DEVICE, conf_threshold=0.1, iou_threshold=0.5)
-      print(f"\nmAP: {mAP:.4f}")
+    #mAP —— 每个epoch评估
+    mAP = evaluate_map(model=model, loader=val_raw_loader, device=DEVICE, conf_threshold=0.1, iou_threshold=0.5)
+    print(f"mAP@0.5: {mAP:.4f}")
 
 
     #写入CSV

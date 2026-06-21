@@ -50,8 +50,9 @@
 | Phase | 模块 | 状态 | 说明 |
 | :---: | :--- | :---: | :--- |
 | 1 | 📁 项目结构搭建 | ✅ 完成 | 目录规范、模块划分、代码风格统一 |
-| 1 | 📦 Pascal VOC2007 数据准备 | ✅ 完成 | 数据集下载、目录组织、路径配置 |
+| 1 | 📦 Pascal VOC2007 数据准备 | ✅ 完成 | 数据集下载（含 test 集）、目录组织、路径配置 |
 | 1 | 📦 Pascal VOC2012 数据准备 | ✅ 完成 | 引入 VOC2012 与 VOC2007 联合训练，数据量提升 3.3 倍 |
+| 1 | 📦 VOC2007 test 集 | ✅ 完成 | 下载 VOCtest_06-Nov-2007.tar，4952 张独立评估集 |
 | 2 | 🗂️ `VOCDataset` 数据加载器 | ✅ 完成 | XML 解析、类别映射、transform 接口 |
 | 2 | 🧪 数据加载单元测试 | ✅ 完成 | 独立测试文件，验证 Bounding Box 与标签正确性 |
 | 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | 24 层卷积 + 2 层全连接检测头架构完整搭建 |
@@ -119,7 +120,7 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 ## 训练与调试历程
 
-从零复现 YOLOv1 的过程并非一帆风顺，而且仍在进行中。从学习率策略、Loss 权重平衡、到架构层面的 BatchNorm 缺失导致 mode collapse，发现了 8 个 Bug。每一步的思考都在日志中留下了痕迹。
+从零复现 YOLOv1 的过程并非一帆风顺，而且仍在进行中。从学习率策略、Loss 权重平衡、到架构层面的 BatchNorm 缺失导致 mode collapse、再到数据划分泄露，累计发现并修复了 9 个问题。每一步的思考都在日志中留下了痕迹。
 
 当前训练配置：warmup 5 epoch（1e-4→5e-4），主干 80 epoch（5e-4），收敛 55 epoch（2e-4），微调 30 epoch（7e-5）。λ_coord=1, λ_obj=3.0, λ_noobj=0.05。
 
@@ -134,9 +135,9 @@ yolov1-from-scratch/
 ├── data/                          # 数据集（gitignore 忽略）
 │   └── VOCdevkit/
 │       ├── VOC2007/
-│       │   ├── Annotations/      # XML 标注文件
-│       │   ├── ImageSets/        # 训练/验证/测试集划分
-│       │   └── JPEGImages/       # 原始图像
+│       │   ├── Annotations/      # XML 标注文件（含 test 集）
+│       │   ├── ImageSets/Main/   # train/val/trainval/test 划分
+│       │   └── JPEGImages/       # 原始图像（含 test 集）
 │       └── VOC2012/
 │           ├── Annotations/
 │           ├── ImageSets/
@@ -224,19 +225,32 @@ torchmetrics
 
 ### 3. 准备数据集
 
-从 [Pascal VOC 官网](http://host.robots.ox.ac.uk/pascal/VOC/) 下载 VOC2007 和 VOC2012 数据集，并按照以下结构放置：
+从 [Pascal VOC 官网](http://host.robots.ox.ac.uk/pascal/VOC/) 下载以下三个压缩包：
+
+- `VOCtrainval_06-Nov-2007.tar` — VOC2007 训练+验证集（5011 张）
+- `VOCtrainval_11-May-2012.tar` — VOC2012 训练+验证集（11540 张）
+- `VOCtest_06-Nov-2007.tar` — VOC2007 测试集（4952 张，**独立于训练集，用于 mAP 评估**）
+
+解压到 `data/VOCdevkit/` 目录，最终结构如下：
 
 ```text
 data/VOCdevkit/
 ├── VOC2007/
-│   ├── Annotations/
-│   ├── ImageSets/
-│   └── JPEGImages/
+│   ├── Annotations/       # 9963 个 XML（5011 trainval + 4952 test）
+│   ├── ImageSets/Main/    # train.txt / val.txt / trainval.txt / test.txt
+│   └── JPEGImages/        # 9963 张图片
 └── VOC2012/
-    ├── Annotations/
-    ├── ImageSets/
-    └── JPEGImages/
+    ├── Annotations/       # 17125 个 XML
+    ├── ImageSets/Main/    # train.txt / val.txt / trainval.txt
+    └── JPEGImages/        # 17125 张图片
 ```
+
+**数据划分**（与论文一致）：
+
+| 用途 | 数据 | 图片数 |
+| :--- | :--- | :--- |
+| 训练 | VOC2007 trainval + VOC2012 trainval | **16,551** |
+| 评估 | VOC2007 test（完全独立，无数据泄露） | **4,952** |
 
 ### 4. 测试数据加载器
 
@@ -292,4 +306,4 @@ python run_detect.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-21
+持续更新中 · Last updated: 2026-06-21 (数据泄漏修复 + 每 Epoch mAP 评估)
