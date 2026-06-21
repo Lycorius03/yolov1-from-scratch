@@ -222,11 +222,13 @@ if __name__ == "__main__":
     print(f"从epoch {start_epoch}继续训练")
 
   for epoch in range(start_epoch, NUM_EPOCHS + 1):
+    current_lr = scheduler.get_last_lr()[0]
+    print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={current_lr:.6f}")
+
     #训练和验证
     train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE, epoch ,batch_log_file)
     val_loss = val_one_epoch(model, val_encoded_loader, loss_fn, DEVICE)
 
-    print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={scheduler.get_last_lr()[0]:.6f}")
     print(f"train_loss: {train_loss:.4f} val_loss: {val_loss:.4f}")
 
     #mAP —— 每个epoch评估
@@ -238,7 +240,7 @@ if __name__ == "__main__":
     #写入CSV
     with open(log_file, 'a', newline='') as f:
       writer = csv.writer(f)
-      writer.writerow([epoch, train_loss, val_loss, mAP, scheduler.get_last_lr()[0]])
+      writer.writerow([epoch, train_loss, val_loss, mAP, current_lr])
 
     #保存最优模型
     if val_loss < best_val_loss:
