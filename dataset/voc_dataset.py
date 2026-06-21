@@ -1,4 +1,5 @@
 import xml.etree.ElementTree as ET
+import random
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
@@ -50,6 +51,15 @@ class VOCDataset(Dataset):
 
     annotation_path = Path(root_dir) / 'Annotations' / f"{image_id}.xml"
     boxes, labels = self._parse_annotation(annotation_path)
+
+    # 随机水平翻转（仅训练模式），同时翻转图片和bbox坐标
+    if self.split == 'train' and random.random() < 0.5:
+      image = image.transpose(Image.FLIP_LEFT_RIGHT)
+      if len(boxes) > 0:
+        flipped_boxes = boxes.clone()
+        flipped_boxes[:, 0] = orig_w - boxes[:, 2]  # xmin' = W - xmax
+        flipped_boxes[:, 2] = orig_w - boxes[:, 0]  # xmax' = W - xmin
+        boxes = flipped_boxes
 
     if self.transform:
       image = self.transform(image)

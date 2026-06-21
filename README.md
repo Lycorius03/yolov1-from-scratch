@@ -120,9 +120,9 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 ## 训练与调试历程
 
-从零复现 YOLOv1 的过程并非一帆风顺，而且仍在进行中。从学习率策略、Loss 权重平衡、到架构层面的 BatchNorm 缺失导致 mode collapse、再到数据划分泄露，累计发现并修复了 9 个问题。每一步的思考都在日志中留下了痕迹。
+从零复现 YOLOv1 的过程并非一帆风顺，而且仍在进行中。从学习率策略、Loss 权重平衡、到架构层面的 BatchNorm 缺失导致 mode collapse、再到数据划分泄露，累计发现并修复了多个问题。每一步的思考都在日志中留下了痕迹。
 
-当前训练配置：warmup 5 epoch（1e-4→5e-4），主干 80 epoch（5e-4），收敛 55 epoch（2e-4），微调 30 epoch（7e-5）。λ_coord=1, λ_obj=3.0, λ_noobj=0.05。
+当前训练配置：余弦退火（CosineAnnealingLR，1e-3→1e-5，170 epoch），数据增强含 RandomHorizontalFlip + ColorJitter，λ_coord=1, λ_obj=3.0, λ_noobj=0.05。
 
 > 📖 **[开发者日志（DEVLOG.md）](DEVLOG.md)** —— 实时记录的学习笔记，伴随项目推进持续更新
 
@@ -306,4 +306,4 @@ python run_detect.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-21 (数据泄漏修复 + 每 Epoch mAP 评估)
+持续更新中 · Last updated: 2026-06-21 (余弦退火 + 数据增强)

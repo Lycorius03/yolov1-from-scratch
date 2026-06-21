@@ -28,20 +28,20 @@ def collate_fn(batch):
   return images, targets
 
 #学习率
-def get_lr(epoch):
-  if epoch <= 5:
-      start_lr = 1e-4
-      end_lr = 5e-4
-      return start_lr + (end_lr - start_lr) * (epoch - 1) / 5
-  elif epoch <= 80:
-      return 5e-4
-  elif epoch <= 135:
-      return 2e-4
-  else:
-      return 7e-5
-def set_lr(optimizer, lr):
-  for param_group in optimizer.param_groups:
-    param_group['lr'] = lr
+#def get_lr(epoch):
+#  if epoch <= 5:
+#      start_lr = 1e-4
+#      end_lr = 5e-4
+#      return start_lr + (end_lr - start_lr) * (epoch - 1) / 5
+#  elif epoch <= 80:
+#      return 5e-4
+#  elif epoch <= 135:
+#      return 2e-4
+#  else:
+#      return 7e-5
+#def set_lr(optimizer, lr):
+#  for param_group in optimizer.param_groups:
+#    param_group['lr'] = lr
 
 #Train
 def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch ,batch_log_file):
@@ -179,6 +179,12 @@ if __name__ == "__main__":
     weight_decay=5e-4
   )
 
+  scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer,
+    T_max=NUM_EPOCHS,
+    eta_min=1e-5
+  )
+
   #数据记录系统
   timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
   log_dir = RUNS_DIR / timestamp
@@ -211,31 +217,28 @@ if __name__ == "__main__":
     checkpoint = torch.load(RESUME_PATH)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
     start_epoch = checkpoint['epoch'] + 1
     print(f"从epoch {start_epoch}继续训练")
 
   for epoch in range(start_epoch, NUM_EPOCHS + 1):
-    #更新学习率
-    lr = get_lr(epoch)
-    set_lr(optimizer, lr)
-    
-    print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={lr}")
-
     #训练和验证
     train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE, epoch ,batch_log_file)
     val_loss = val_one_epoch(model, val_encoded_loader, loss_fn, DEVICE)
 
+    print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={scheduler.get_last_lr()[0]:.6f}")
     print(f"train_loss: {train_loss:.4f} val_loss: {val_loss:.4f}")
-    
+
     #mAP —— 每个epoch评估
     mAP = evaluate_map(model=model, loader=val_raw_loader, device=DEVICE, conf_threshold=0.1, iou_threshold=0.5)
     print(f"mAP@0.5: {mAP:.4f}")
 
+    scheduler.step()
 
     #写入CSV
     with open(log_file, 'a', newline='') as f:
       writer = csv.writer(f)
-      writer.writerow([epoch, train_loss, val_loss, mAP, lr])
+      writer.writerow([epoch, train_loss, val_loss, mAP, scheduler.get_last_lr()[0]])
 
     #保存最优模型
     if val_loss < best_val_loss:
@@ -245,6 +248,7 @@ if __name__ == "__main__":
       'epoch': epoch,
       'model_state_dict': model.state_dict(),
       'optimizer_state_dict': optimizer.state_dict(),
+      'scheduler_state_dict': scheduler.state_dict(),
       'train_loss': train_loss,
       'val_loss': val_loss,
       'mAP': mAP
