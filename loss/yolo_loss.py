@@ -78,8 +78,8 @@ class YoloLoss(nn.Module):
      
     class_loss = torch.sum(obj_mask.unsqueeze(-1).float() * (class_pred - class_target) ** 2)
 
-    # 防止 class 坍塌：noobj cell 的 class 输出推向均匀分布
-    noobj_class_reg = 0.001 * torch.sum(noobj_mask.unsqueeze(-1).float() * (class_pred - 1.0/self.C) ** 2)
+    # 防class坍塌: 0.001→0.005, class占loss 60%
+    noobj_class_reg = 0.005 * torch.sum(noobj_mask.unsqueeze(-1).float() * (class_pred - 1.0/self.C) ** 2)
 
     # Mean confidence of responsible bboxes in obj cells (diagnostic)
     n_obj = obj_mask.float().sum() + 1e-8

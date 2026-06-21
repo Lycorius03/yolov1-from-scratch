@@ -928,11 +928,13 @@ nn.LeakyReLU(0.1),
 **数据泄露的诊断**：
 
 VOC2007 和 VOC2012 的 `ImageSets/Main/` 下有三个文件：
+
 - `train.txt`：纯训练图片
 - `val.txt`：纯验证图片
 - `trainval.txt`：train + val 合并
 
 之前的代码：
+
 ```python
 # voc_dataset.py（修复前）
 if self.split == 'train':
@@ -958,6 +960,7 @@ else:
 **代码修改**：
 
 `dataset/voc_dataset.py`：
+
 ```python
 if self.split == 'train':
     txt_file = ... / 'trainval.txt'     # 训练：全量 train+val
@@ -968,6 +971,7 @@ else:
 ```
 
 `train.py` 验证集改为：
+
 ```python
 val_dataset = VOCDataset(
     root_dirs=[str(VOC2007_DIR)],       # test.txt 仅在 VOC2007 中存在
@@ -983,7 +987,7 @@ val_dataset = VOCDataset(
 | 评估集 | **4,952** | VOC2007 test（完全独立） |
 | 训练 ∩ 评估 | **0** | ✓ 无数据泄露 |
 
-**额外改进：每 Epoch 评估 mAP**
+### 额外改进：每 Epoch 评估 mAP
 
 此前 mAP 仅在 `epoch % 5 == 0` 时评估，其余 epoch 的 CSV 中 mAP 列填 0.0。现改为每 epoch 都运行 `evaluate_map()` 并在终端输出 `mAP@0.5: {value}`。训练曲线图上 mAP 曲线从稀疏变为连续，无需修改绘图代码。
 
@@ -1039,4 +1043,73 @@ mAP 0.124 与论文 0.634 之间最根本的差距来自过拟合——train_los
 
 ---
 
-持续更新中 · Last updated: 2026-06-21 (余弦退火 + 数据增强)
+持续更新中 · Last updated: 2026-06-21 (SGDR 余弦退火重启 + noobj_class_reg 加强)
+
+---
+
+### 2026-06-21 — 调整记录：余弦退火重启 + 数据驱动参数分析
+
+**背景**：前两次正式训练（step decay: 5e-4→2e-4→7e-5, 同一配置）产出了大量可对比数据。Run 083804（数据泄露，val⊂train）mAP=0.83 但无意义；Run 152120（独立 test）mAP=0.124 才是真实泛化水平。两轮数据对比揭示了三个精确问题。
+
+#### 1. 学习率各阶段效率量化
+
+| 阶段 | lr | Epoch | 爆炸率 | 平均 mAP | mAP 变化 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 主干 | 5e-4 | 6-80 (75轮) | **32/75 (43%)** | 0.049 | 震荡无方向 |
+| 收敛 | 2e-4 | 81-135 (55轮) | 1/55 (2%) | 0.100 | 0.065→0.099 ↑ |
+| 微调 | 7e-5 | 136-170 (35轮) | 0/35 | 0.118 | **完全停滞** |
+
+**关键发现**：
+
+- 5e-4 时 val_loss 爆炸至最高 1355，75 个 epoch 算力浪费在震荡中
+- 2e-4 是唯一稳定有效的学习区间
+- 7e-5 太低，mAP 纹丝不动
+- 阶梯衰减的每级幅度靠猜，且 75+35=110 个 epoch 在做无效功
+
+#### 2. 最终状态 Loss 组成
+
+| 组件 | 占比 |
+| :--- | :--- |
+| class | **59.5%** |
+| obj | 18.1% |
+| coord | 16.4% |
+| noobj | 5.9% |
+
+分类占 loss 的 60%——模型主要卡在类别区分，不是定位或置信度。DEVLOG 中记录的"person 占 77% 输出"与此一致。
+
+#### 3. 过拟合程度
+
+train_loss 0.33 vs val_loss 2.70，8 倍差距。但 Run 083804（数据泄露）mAP=0.83 证明架构本身有能力学好——问题在于泛化。
+
+#### 修改
+
+**`train.py` — 学习率调度重构**：
+
+```python
+# 旧: CosineAnnealingLR, lr=1e-3→1e-5, 单次下降
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=170, eta_min=1e-5)
+
+# 新: SGDR, η_max=3e-4→η_min=1e-5, 多周期重启
+cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=40, T_mult=2, eta_min=1e-5)
+# 配合 SequentialLR: 5 epoch linear warmup → SGDR
+```
+
+参数选择逻辑：
+
+- η_max=3e-4：5e-4 爆炸 / 2e-4 稳定 → 取中间，短暂触及不会引发爆炸
+- T_0=40, T_mult=2：首周期 40 轮充分收敛，之后 80 轮、160 轮逐步延长
+- weight_decay 5e-4→1e-3：加重正则对抗 8x 过拟合
+
+**`loss/yolo_loss.py` — 分类正则加强**：
+
+```python
+# 旧
+noobj_class_reg = 0.001 * ...
+
+# 新
+noobj_class_reg = 0.005 * ...   # class 占 60% loss，需更强均匀化推力
+```
+
+**为什么 SGDR 而不是普通余弦退火**：SGDR 论文 (Loshchilov & Hutter, 2017) 的核心优势是周期性重启——每次从 η_max 重新开始，模型有机会跳出当前局部最优。普通余弦退火只有一个下降通道，一旦卡在次优极小值无法自救。两次重启等于两次"重新选择路径"的机会。
+
+**预期**：lr 稳定在 1e-4~2e-4 有效区间的比例大幅提升，爆炸风险降至近零，两个重启点可能带来 mAP 跳跃。

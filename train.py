@@ -27,21 +27,7 @@ def collate_fn(batch):
   images = torch.stack(images, dim=0)
   return images, targets
 
-#学习率
-#def get_lr(epoch):
-#  if epoch <= 5:
-#      start_lr = 1e-4
-#      end_lr = 5e-4
-#      return start_lr + (end_lr - start_lr) * (epoch - 1) / 5
-#  elif epoch <= 80:
-#      return 5e-4
-#  elif epoch <= 135:
-#      return 2e-4
-#  else:
-#      return 7e-5
-#def set_lr(optimizer, lr):
-#  for param_group in optimizer.param_groups:
-#    param_group['lr'] = lr
+# SGDR: CosineAnnealingWarmRestarts，T_0=40, T_mult=2, η_max=3e-4, η_min=1e-5
 
 #Train
 def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch ,batch_log_file):
@@ -94,7 +80,8 @@ if __name__ == "__main__":
   C = 20
   BATCH_SIZE = 16
   NUM_EPOCHS = 170
-  LEARNING_RATE = 1e-3
+  LEARNING_RATE = 3e-4          # η_max: 5e-4爆炸, 2e-4稳定, 取中间
+  WARMUP_EPOCHS = 5
   DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
   print(f"使用设备: {DEVICE}")
@@ -176,13 +163,27 @@ if __name__ == "__main__":
     model.parameters(),
     lr=LEARNING_RATE,
     momentum=0.9,
-    weight_decay=5e-4
+    weight_decay=1e-3           # 5e-4→1e-3，对抗8x过拟合
   )
 
-  scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer,
-    T_max=NUM_EPOCHS,
-    eta_min=1e-5
+  # Warmup 5轮: 1e-4 → 3e-4, 然后切入SGDR
+  def warmup_lambda(epoch):
+      if epoch < WARMUP_EPOCHS:
+          warmup_lr = 1e-4 + (LEARNING_RATE - 1e-4) * (epoch + 1) / WARMUP_EPOCHS
+          return warmup_lr / LEARNING_RATE
+      return 1.0
+
+  warmup = torch.optim.lr_scheduler.LambdaLR(optimizer, warmup_lambda)
+  cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+      optimizer,
+      T_0=40,
+      T_mult=2,
+      eta_min=1e-5
+  )
+  scheduler = torch.optim.lr_scheduler.SequentialLR(
+      optimizer,
+      schedulers=[warmup, cosine],
+      milestones=[WARMUP_EPOCHS]
   )
 
   #数据记录系统
@@ -224,8 +225,6 @@ if __name__ == "__main__":
   for epoch in range(start_epoch, NUM_EPOCHS + 1):
     current_lr = scheduler.get_last_lr()[0]
     print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={current_lr:.6f}")
-
-    #训练和验证
     train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE, epoch ,batch_log_file)
     val_loss = val_one_epoch(model, val_encoded_loader, loss_fn, DEVICE)
 

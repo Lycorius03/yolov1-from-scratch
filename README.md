@@ -106,7 +106,7 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 - **坐标损失（coord loss）**：仅对负责预测的 bbox 计算。中心坐标 (x, y) 使用线性误差，宽高 (w, h) 先取平方根再计算误差。√wh 的作用是压缩大框的梯度尺度，防止大尺寸框主导整体 loss。权重 `λ_coord = 1`（loss 已按 batch 归一化）。
 - **置信度损失（obj / noobj loss）**：分为有物体和无物体两部分。负责框学习真实置信度（IoU ≥ 0.3 时用实际 IoU，< 0.3 时用 0.3 冷启动地板），非负责框被压制到接近 0。两者通过权重 `λ_obj = 3.0` 和 `λ_noobj = 0.05` 平衡——后者显著低于原论文的 0.5，因为从零训练时每图 obj:noobj 信号比约 3:95，过高的 noobj 权重会压死置信度。
-- **分类损失（class loss）**：在有物体的 grid cell 上计算 MSE；在无物体的 grid cell 上施加极小的均匀化正则（权重 0.001），防止模型坍缩到"永远预测 person"。
+- **分类损失（class loss）**：在有物体的 grid cell 上计算 MSE；在无物体的 grid cell 上施加极小的均匀化正则（权重 0.005），防止模型坍缩到"永远预测 person"。
 
 #### 责任分配机制（Hard Assignment）
 
@@ -122,7 +122,7 @@ YOLOv1 的损失不是一个统一误差，而是一个由四个加权子损失�
 
 从零复现 YOLOv1 的过程并非一帆风顺，而且仍在进行中。从学习率策略、Loss 权重平衡、到架构层面的 BatchNorm 缺失导致 mode collapse、再到数据划分泄露，累计发现并修复了多个问题。每一步的思考都在日志中留下了痕迹。
 
-当前训练配置：余弦退火（CosineAnnealingLR，1e-3→1e-5，170 epoch），数据增强含 RandomHorizontalFlip + ColorJitter，λ_coord=1, λ_obj=3.0, λ_noobj=0.05。
+当前训练配置：SGDR 余弦退火重启（CosineAnnealingWarmRestarts，T₀=40 T_mult=2，3e-4→1e-5，170 epoch），warmup 5 轮 1e-4→3e-4，weight_decay=1e-3，数据增强含 RandomHorizontalFlip + ColorJitter，λ_coord=1, λ_obj=3.0, λ_noobj=0.05, noobj_class_reg=0.005。
 
 > 📖 **[开发者日志（DEVLOG.md）](DEVLOG.md)** —— 实时记录的学习笔记，伴随项目推进持续更新
 
@@ -306,4 +306,4 @@ python run_detect.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-21 (余弦退火 + 数据增强)
+持续更新中 · Last updated: 2026-06-21 (SGDR 余弦退火重启 + noobj_class_reg 加强)
