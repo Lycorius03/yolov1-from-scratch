@@ -1045,7 +1045,7 @@ mAP 0.124 与论文 0.634 之间最根本的差距来自过拟合——train_los
 
 ---
 
-持续更新中 · Last updated: 2026-06-22 (输出激活函数 + 防过拟合 + 数据增强)
+持续更新中 · Last updated: 2026-06-22 (输出激活函数 + 防过拟合 + 数据增强 + SGDR 周期缩短)
 
 ---
 
@@ -1247,6 +1247,14 @@ Head FC 50176→4096 单层 205M 参数，占总参数 83%。Dropout(0.5) 在 1.
 
 **修复**（`train.py`）：ColorJitter 加 contrast=0.5、hue=0.1，新增 GaussianBlur(k=3, σ 0.1~1.5)。
 
+#### SGDR 重启周期缩短
+
+旧配置 T_0=40, T_mult=2，170 epoch 只有 2 次重启。训练数据（`20260622_000500`）显示：每次重启 lr 跳回 η_max 后 mAP 反而涨一波，说明模型需要高 lr 震荡来跳出记忆化。
+
+周期太长时，大量时间耗在低 lr 区域（如 cycle 2 末尾 40+ epoch 在 1e-4 以下蠕动），512×512 维的 FC 参数空间在极低 lr 下几乎只做局部插值——这为过拟合提供了完美温床。
+
+**修复**（`train.py`）：T_0 40 → 20，170 epoch 内从 2 次重启变为 4 次。更频繁的高 lr 震荡充当隐式正则化。
+
 #### 本次修复清单
 
 | 优先级 | 问题 | 修复 | 文件 |
@@ -1255,4 +1263,5 @@ Head FC 50176→4096 单层 205M 参数，占总参数 83%。Dropout(0.5) 在 1.
 | P1 | class loss 占比高 | softmax 天然约束输出范围 | models/yolov1.py |
 | P1 | Head 过拟合 | Dropout 0.5→0.7 | models/yolov1.py |
 | P2 | 数据增强弱 | GaussianBlur + ColorJitter 扩展 | train.py |
+| P2 | 重启周期过长 | SGDR T_0 40→20，2次→4次重启 | train.py |
 | P3 | λ_noobj | 不调，sigmoid 下数学上刚好 | — |

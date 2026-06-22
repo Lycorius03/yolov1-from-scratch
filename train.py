@@ -27,7 +27,7 @@ def collate_fn(batch):
   images = torch.stack(images, dim=0)
   return images, targets
 
-# SGDR: CosineAnnealingWarmRestarts，T_0=40, T_mult=2, η_max=3e-4, η_min=1e-5
+# SGDR: CosineAnnealingWarmRestarts，T_0=20, T_mult=2, η_max=3e-4, η_min=1e-5
 
 #Train
 def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch ,batch_log_file):
@@ -179,7 +179,7 @@ if __name__ == "__main__":
   warmup = torch.optim.lr_scheduler.LambdaLR(optimizer, warmup_lambda)
   cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
       optimizer,
-      T_0=40,
+      T_0=20,
       T_mult=2,
       eta_min=1e-5
   )
