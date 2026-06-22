@@ -1,6 +1,6 @@
 import torch
 from torchvision import transforms
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from models.yolov1 import YOLOv1
 from utils.nms import non_max_suppression
@@ -11,6 +11,13 @@ CLASS_NAMES = [
   "diningtable", "dog", "horse", "motorbike", "person",
   "pottedplant", "sheep", "sofa", "train", "tvmonitor"
 ]
+CLASS_COLORS = [
+  (0,0,255),   (255,128,0), (255,255,0),   (0,128,255), (128,0,255),
+  (0,255,255), (0,255,0),   (255,0,255),   (128,128,0), (255,0,128),
+  (0,128,128), (128,0,0),   (255,100,100), (0,128,0),   (0,0,128),
+  (128,128,128),(0,100,0),  (100,0,100),   (100,100,0), (200,200,0),
+]
+FONT = ImageFont.truetype("arial.ttf", size=16)
 
 def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="cuda"):
   
@@ -136,9 +143,12 @@ def visualize_predictions(model, loader, image_indices=None, device="cuda", conf
           x2 = (x + w / 2) * w_img
           y2 = (y + h / 2) * h_img
 
+          color = CLASS_COLORS[int(class_id)]
           label = f"{CLASS_NAMES[int(class_id)]} {score:.2f}"
-          draw.rectangle([x1, y1, x2, y2], outline="red", width=3)
-          draw.text((x1, y1 - 10), label, fill="red")
+          draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+          tb = draw.textbbox((x1, y1 - 14), label, font=FONT)
+          draw.rectangle([tb[0]-2, tb[1]-1, tb[2]+2, tb[3]+1], fill=color)
+          draw.text((x1, y1 - 14), label, fill="white", font=FONT)
 
           results.append(image)
           global_idx += 1

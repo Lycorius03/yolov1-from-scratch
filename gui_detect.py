@@ -8,7 +8,7 @@ from PIL import Image
 from pathlib import Path
 
 from models.yolov1 import YOLOv1
-from detect import decode_predictions, CLASS_NAMES
+from detect import decode_predictions, CLASS_NAMES, CLASS_COLORS
 from utils.nms import non_max_suppression
 from config import PROJECT_ROOT
 
@@ -17,19 +17,7 @@ CONF_THRESHOLD = 0.1
 IOU_THRESHOLD = 0.5
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# 颜色池
-COLORS = [
-    (255, 0, 0), (0, 255, 0), (0, 0, 255),
-    (255, 255, 0), (255, 0, 255), (0, 255, 255),
-    (128, 0, 0), (0, 128, 0), (0, 0, 128),
-    (128, 128, 0), (128, 0, 128), (0, 128, 128),
-    (255, 128, 0), (128, 255, 0), (0, 128, 255),
-    (255, 0, 128), (128, 0, 255), (0, 255, 128),
-    (192, 192, 192), (128, 128, 128),
-]
-
-
-def load_model(run_name="20260621_152120"):
+def load_model(run_name="20260622_000500"):
     weight_path = PROJECT_ROOT / "runs" / run_name / "best_model.pth"
     if not weight_path.exists():
         raise FileNotFoundError(f"权重不存在: {weight_path}")
@@ -66,11 +54,13 @@ def draw_boxes(frame_bgr, boxes):
         y1 = int((cy - bh / 2) * h)
         x2 = int((cx + bw / 2) * w)
         y2 = int((cy + bh / 2) * h)
-        color = COLORS[int(class_id) % len(COLORS)]
+        color = CLASS_COLORS[int(class_id)]
         cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), color, 2)
         label = f"{CLASS_NAMES[int(class_id)]} {score:.2f}"
-        cv2.putText(frame_bgr, label, (x1, y1 - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        cv2.rectangle(frame_bgr, (x1, y1 - th - 6), (x1 + tw + 4, y1), color, -1)
+        cv2.putText(frame_bgr, label, (x1 + 2, y1 - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     return frame_bgr
 
 
@@ -152,7 +142,7 @@ def main():
               command=lambda: [root.withdraw(), run_image(model), root.deiconify()]
               ).pack(pady=5)
 
-    tk.Label(root, text="Run: 20260621_152120 | conf=0.1", font=("Arial", 8), fg="gray").pack(side="bottom", pady=10)
+    tk.Label(root, text="Run: 20260622_000500 | conf=0.1", font=("Arial", 8), fg="gray").pack(side="bottom", pady=10)
 
     root.mainloop()
 

@@ -1,11 +1,11 @@
 import torch
 import torchvision.transforms as transforms
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 
 from models.yolov1 import YOLOv1
 from dataset.voc_dataset import VOCDataset
-from detect import decode_predictions, CLASS_NAMES
+from detect import decode_predictions, CLASS_NAMES, CLASS_COLORS
 from utils.nms import non_max_suppression
 from config import PROJECT_ROOT, VOC2007_DIR, VOC2012_DIR
 
@@ -17,6 +17,7 @@ NUM_SAMPLES = 5
 OUTPUT_DIR = "./outputs/detect"
 CONF_THRESHOLD = 0.4
 IOU_THRESHOLD = 0.5
+FONT = ImageFont.truetype("arial.ttf", size=16)
 
 #加载 best_model.pth 权重，返回 eval 模式的模型
 def load_best_model(weight_path, device="cuda"):
@@ -50,9 +51,12 @@ def detect_single_image(model, image, device="cuda", conf_threshold=0.4, iou_thr
     x2 = (x + w / 2) * w_img
     y2 = (y + h / 2) * h_img
 
+    color = CLASS_COLORS[int(class_id)]
     label = f"{CLASS_NAMES[int(class_id)]} {score:.2f}"
-    draw.rectangle([x1, y1, x2, y2], outline="red", width=3)
-    draw.text((x1, y1 - 10), label, fill="red")
+    draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+    tb = draw.textbbox((x1, y1 - 14), label, font=FONT)
+    draw.rectangle([tb[0]-2, tb[1]-1, tb[2]+2, tb[3]+1], fill=color)
+    draw.text((x1, y1 - 14), label, fill="white", font=FONT)
 
   return image
 
