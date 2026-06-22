@@ -5,7 +5,7 @@ from pathlib import Path
 
 from models.yolov1 import YOLOv1
 from dataset.voc_dataset import VOCDataset
-from detect import decode_predictions, CLASS_NAMES, CLASS_COLORS
+from detect import decode_predictions, CLASS_NAMES, CLASS_COLORS, FONT
 from utils.nms import non_max_suppression
 from config import PROJECT_ROOT, VOC2007_DIR, VOC2012_DIR
 
@@ -18,7 +18,6 @@ NUM_SAMPLES = 5
 OUTPUT_DIR = "./outputs/detect"
 CONF_THRESHOLD = 0.1
 IOU_THRESHOLD = 0.5
-FONT = ImageFont.truetype("arial.ttf", size=16)
 
 #加载 best_model.pth 权重，返回 eval 模式的模型
 def load_best_model(weight_path, device="cuda"):

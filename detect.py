@@ -17,7 +17,15 @@ CLASS_COLORS = [
   (0,128,128), (128,0,0),   (255,100,100), (0,128,0),   (0,0,128),
   (128,128,128),(0,100,0),  (100,0,100),   (100,100,0), (200,200,0),
 ]
-FONT = ImageFont.truetype("arial.ttf", size=16)
+def _load_font(size=16):
+    for name in ["arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                 "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"]:
+        try: return ImageFont.truetype(name, size=size)
+        except OSError: continue
+    return ImageFont.load_default()
+
+FONT = _load_font(16)
 
 def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.1, device="cuda"):
   
