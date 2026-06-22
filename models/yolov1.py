@@ -32,7 +32,7 @@ class YOLOv1(nn.Module):
       #FC1: 50176 → 4096
       nn.Linear(7 * 7 * 1024, 4096),
       nn.LeakyReLU(0.1),
-      nn.Dropout(0.5),
+      nn.Dropout(0.7),
 
       #FC2: 4096 → 1470 (7×7×(20 + 2×5))
       nn.Linear(4096, self.S * self.S * (self.B * 5 + self.C))
@@ -43,7 +43,11 @@ class YOLOv1(nn.Module):
     x = self.backbone(x)
     x = self.adapter(x)
     x = self.fc_layers(x)
-    return x
+    x = x.view(-1, self.S, self.S, self.B * 5 + self.C)
+    x[..., 4] = torch.sigmoid(x[..., 4])
+    x[..., 9] = torch.sigmoid(x[..., 9])
+    x[..., 10:] = torch.softmax(x[..., 10:], dim=-1)
+    return x.reshape(x.shape[0], -1)
 
 
 ModernYOLOv1 = YOLOv1

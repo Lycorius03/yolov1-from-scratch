@@ -11,6 +11,7 @@
 - [Part 3: 训练历史数据（2026-06-01 ~ 2026-06-19）](#part-3-训练历史数据2026-06-01--2026-06-19)
 - [Part 4: 阶段反思（2026-06-17）](#part-4-阶段反思2026-06-17)
 - [Part 5: 架构折戟与思想重构（2026-06-21）](#part-5-架构折戟与思想重构2026-06-21)
+- [Part 6: 输出激活函数 + 防过拟合 + 数据增强（2026-06-22）](#part-6-输出激活函数--防过拟合--数据增强2026-06-22)
 
 ---
 
@@ -1044,7 +1045,7 @@ mAP 0.124 与论文 0.634 之间最根本的差距来自过拟合——train_los
 
 ---
 
-持续更新中 · Last updated: 2026-06-21 (架构重构：ResNet-50 Backbone 替换 24 层自定义卷积)
+持续更新中 · Last updated: 2026-06-22 (输出激活函数 + 防过拟合 + 数据增强)
 
 ---
 
@@ -1177,3 +1178,81 @@ noobj_class_reg = 0.005 * ...   # class 占 60% loss，需更强均匀化推力
 | Head | ~0.6M | 211.5M（未变，FC 50176→4096→1470） |
 | 总参数 | ~271M | **~254M** |
 | 可训参数 | 全部 | 全部（254M，backbone 可冻结为 0） |
+
+---
+
+## Part 6: 输出激活函数 + 防过拟合 + 数据增强（2026-06-22）
+
+### 2026-06-22 — 修复记录：输出层激活函数 + 防过拟合 + 数据增强
+
+#### 背景
+
+ResNet-50 首次训练完成（`20260622_000500`）。mAP 峰值 0.359（vs 旧架构 0.124），翻近 3 倍，但 val_loss 卡在 1.5 下不去，推理时每张图仍只输出一种类别。
+
+#### 诊断过程
+
+对随机噪声跑前向传播，发现致命问题：
+
+```text
+conf  bbox1: mean=-2.55  max=0.47  min=-11.66
+conf  bbox2: mean=-2.72  max=0.67  min=-9.45
+class prob max per cell: mean=1.44
+```
+
+**置信度可以为负数，class "概率"可以远超 1.0。** 模型末层 `nn.Linear(4096, 1470)` 之后没有任何激活函数，输出完全无界。MSE loss 虽然也能推着走，但模型要浪费大量容量去学一个本该由激活函数免费提供的输出范围约束。
+
+#### 修复（`models/yolov1.py`）
+
+forward 末尾加 sigmoid 和 softmax：
+
+```python
+x = x.view(-1, self.S, self.S, self.B * 5 + self.C)
+x[..., 4]  = torch.sigmoid(x[..., 4])      # conf bbox1 ∈ [0,1]
+x[..., 9]  = torch.sigmoid(x[..., 9])      # conf bbox2 ∈ [0,1]
+x[..., 10:] = torch.softmax(x[..., 10:], dim=-1)  # class sum=1
+return x.reshape(x.shape[0], -1)
+```
+
+**注意**：sigmoid/softmax 改变了输出空间，旧权重不兼容，必须重新训练。
+
+#### λ_noobj 重分析
+
+sigmoid 改变了 conf 的初始状态（0→0.5），旧 DEVLOG 中 λ_noobj 的数学分析前提全变。重算初始化梯度比：
+
+```text
+带 sigmoid 初始：conf ≈ 0.5
+noobj 梯度：46格 × 2 × λ_noobj × 0.5³ = 5.75 × λ_noobj  
+obj   梯度：3格  × 2 × λ_obj   × (0.5-0.3)² = 0.06 × λ_obj
+
+obj信号 = 3 × 3.0 × 2 × 0.2² = 0.72
+noobj信号 = 46 × 2 × λ_noobj × 0.5² = 23 × λ_noobj
+```
+
+| λ_noobj | obj : noobj | 判断 |
+| :--- | :---: | :--- |
+| 0.05 | 0.72 : 1.15 | 略偏压制，但 clamp(0.3) 地板会托住 obj 方向 |
+| 0.1 | 0.72 : 2.3 | 压制过强 |
+
+**结论：λ_noobj=0.05 不需要改。** DEVLOG 历史上从 0.5→0.1→0.05 的调试路径，本质上是在补偿"没有 sigmoid 时 conf 可以为负"的问题。sigmoid 补上了，0.05 刚好。
+
+#### Head 过拟合
+
+Head FC 50176→4096 单层 205M 参数，占总参数 83%。Dropout(0.5) 在 1.6 万张图上挡不住。
+
+**修复**：Dropout 0.5 → 0.7。
+
+#### 数据增强
+
+仅 ColorJitter(brightness, saturation) + HorizontalFlip。
+
+**修复**（`train.py`）：ColorJitter 加 contrast=0.5、hue=0.1，新增 GaussianBlur(k=3, σ 0.1~1.5)。
+
+#### 本次修复清单
+
+| 优先级 | 问题 | 修复 | 文件 |
+| :---: | :--- | :--- | :--- |
+| P0 | 输出无界 | sigmoid(conf) + softmax(class) | models/yolov1.py |
+| P1 | class loss 占比高 | softmax 天然约束输出范围 | models/yolov1.py |
+| P1 | Head 过拟合 | Dropout 0.5→0.7 | models/yolov1.py |
+| P2 | 数据增强弱 | GaussianBlur + ColorJitter 扩展 | train.py |
+| P3 | λ_noobj | 不调，sigmoid 下数学上刚好 | — |

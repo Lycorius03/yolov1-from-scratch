@@ -90,7 +90,8 @@ if __name__ == "__main__":
   #数据预处理
   transform = transforms.Compose([
     transforms.Resize((448,448)),
-    transforms.ColorJitter(brightness=0.5, saturation=0.5),
+    transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
+    transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5)),
     transforms.ToTensor(),
   ])
 
