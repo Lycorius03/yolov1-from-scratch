@@ -19,7 +19,7 @@ CLASS_COLORS = [
 ]
 FONT = ImageFont.truetype("arial.ttf", size=16)
 
-def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="cuda"):
+def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.1, device="cuda"):
   
   #reshape
   batch_size = predictions.shape[0]
@@ -42,13 +42,13 @@ def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="
     cell_preds = predictions[b]
 
     bbox_preds = cell_preds[..., :B * 5].reshape(S, S, B, 5)
-    class_probs = cell_preds[..., B * 5:]
+    class_probs = torch.softmax(cell_preds[..., B * 5:], dim=-1)
 
   #transform position
     x = (bbox_preds[..., 0] + grid_x) / S
     y = (bbox_preds[..., 1] + grid_y) / S
-    w = torch.abs(bbox_preds[..., 2])
-    h = torch.abs(bbox_preds[..., 3])
+    w = bbox_preds[..., 2]
+    h = bbox_preds[..., 3]
     conf = bbox_preds[..., 4] 
 
   #reshape
@@ -67,6 +67,14 @@ def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="
     if boxes.shape[0] == 0:
       all_boxes.append(torch.zeros((0, 6), device=device))
     else:
+      x1 = (boxes[:, 0] - boxes[:, 2] / 2).clamp(0, 1)
+      y1 = (boxes[:, 1] - boxes[:, 3] / 2).clamp(0, 1)
+      x2 = (boxes[:, 0] + boxes[:, 2] / 2).clamp(0, 1)
+      y2 = (boxes[:, 1] + boxes[:, 3] / 2).clamp(0, 1)
+      boxes[:, 0] = (x1 + x2) / 2
+      boxes[:, 1] = (y1 + y2) / 2
+      boxes[:, 2] = (x2 - x1).clamp(min=1e-6)
+      boxes[:, 3] = (y2 - y1).clamp(min=1e-6)
       all_boxes.append(
         torch.cat([
           boxes[:, :4],
@@ -78,7 +86,7 @@ def decode_predictions(predictions, S=7, B=2, C=20, conf_threshold=0.4, device="
   return all_boxes
 
 #单batch预测
-def predict_batch(model, images, conf_threshold=0.4, iou_threshold=0.5):
+def predict_batch(model, images, conf_threshold=0.1, iou_threshold=0.5):
   #前向传播
   model.eval()
   device = images.device
@@ -100,7 +108,7 @@ def predict_batch(model, images, conf_threshold=0.4, iou_threshold=0.5):
   return final_results
 
 #批量预测
-def predict_loader(model, loader, device="cuda", conf_threshold=0.4, iou_threshold=0.5):
+def predict_loader(model, loader, device="cuda", conf_threshold=0.1, iou_threshold=0.5):
   all_predictions = []
   model.to(device)
 
@@ -113,7 +121,7 @@ def predict_loader(model, loader, device="cuda", conf_threshold=0.4, iou_thresho
   return all_predictions
 
 #可视化
-def visualize_predictions(model, loader, image_indices=None, device="cuda", conf_threshold=0.4, iou_threshold=0.5):
+def visualize_predictions(model, loader, image_indices=None, device="cuda", conf_threshold=0.1, iou_threshold=0.5):
   model.eval()
   model.to(device)
 
@@ -150,7 +158,7 @@ def visualize_predictions(model, loader, image_indices=None, device="cuda", conf
           draw.rectangle([tb[0]-2, tb[1]-1, tb[2]+2, tb[3]+1], fill=color)
           draw.text((x1, y1 - 14), label, fill="white", font=FONT)
 
-          results.append(image)
-          global_idx += 1
+        results.append(image)
+        global_idx += 1
   
   return results

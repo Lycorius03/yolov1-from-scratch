@@ -1,8 +1,10 @@
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 import torchvision.transforms as transforms
 import csv
+import math
+import os
 from pathlib import Path
 from datetime import datetime
 
@@ -11,7 +13,8 @@ from models.yolov1 import YOLOv1
 from loss.yolo_loss import YoloLoss
 import loss.yolo_loss as yolo_loss_module
 from config import VOC2007_DIR, VOC2012_DIR, RUNS_DIR
-from utils.map import evaluate_map
+from detect import predict_batch
+from utils.map import evaluate_map, evaluate_voc07_map
 from utils.plot_utils import plot_training_curve
 
 # torch.backends.cudnn.enabled = False
@@ -27,11 +30,13 @@ def collate_fn(batch):
   images = torch.stack(images, dim=0)
   return images, targets
 
-# SGDR: CosineAnnealingWarmRestarts，T_0=20, T_mult=2, η_max=3e-4, η_min=1e-5
+# Warmup + cosine, no hard restart
 
 #Train
 def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch ,batch_log_file):
   model.train()
+  loss_fn.set_epoch(epoch)
+  loss_fn.set_phase("train")
   total_loss = 0.0
 
   for batch_idx, (images, targets) in enumerate(loader):
@@ -60,6 +65,7 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch ,batch_log_
 #Validation
 def val_one_epoch(model, loader, loss_fn, device):
   model.eval()
+  loss_fn.set_phase("val")
   total_loss = 0.0
 
   with torch.no_grad():
@@ -73,15 +79,46 @@ def val_one_epoch(model, loader, loss_fn, device):
   return total_loss / len(loader)
 
 
+def prediction_stats(model, loader, device, conf_threshold=0.1, iou_threshold=0.5):
+  model.eval()
+  total_images = 0
+  total_boxes = 0
+  empty_images = 0
+  class_counts = torch.zeros(20, dtype=torch.long)
+
+  with torch.no_grad():
+    for images, _ in loader:
+      images = images.to(device)
+      batch_results = predict_batch(model, images, conf_threshold=conf_threshold, iou_threshold=iou_threshold)
+
+      for boxes in batch_results:
+        total_images += 1
+        total_boxes += boxes.shape[0]
+        if boxes.shape[0] == 0:
+          empty_images += 1
+        else:
+          labels = boxes[:, 5].long().cpu()
+          class_counts += torch.bincount(labels, minlength=20)
+
+  top_classes = ",".join([str(i) for i in torch.argsort(class_counts, descending=True)[:5].tolist()])
+  boxes_per_image = total_boxes / max(total_images, 1)
+  return boxes_per_image, empty_images, top_classes
+
+
 if __name__ == "__main__":
   # 超参数配置
   S = 7
   B = 2
   C = 20
   BATCH_SIZE = 16
-  NUM_EPOCHS = 170
-  # η_max: 5e-4爆炸, 2e-4稳定, 取中间
-  LEARNING_RATE = 3e-4
+  NUM_EPOCHS = int(os.environ.get("YOLO_EPOCHS", 170))
+  TRAIN_LIMIT = int(os.environ.get("YOLO_TRAIN_LIMIT", 0))
+  EVAL_LIMIT = int(os.environ.get("YOLO_EVAL_LIMIT", 0))
+  VOC07_EVERY = int(os.environ.get("YOLO_VOC07_EVERY", 1))
+  STATS_EVERY = int(os.environ.get("YOLO_STATS_EVERY", 1))
+  BACKBONE_LR = 3e-5
+  ADAPTER_LR = 1e-4
+  HEAD_LR = 2e-4
   WARMUP_EPOCHS = 5
   DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -91,7 +128,7 @@ if __name__ == "__main__":
   transform = transforms.Compose([
     transforms.Resize((448,448)),
     transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
-    transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5)),
+    transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0))], p=0.15),
     transforms.ToTensor(),
   ])
 
@@ -131,6 +168,13 @@ if __name__ == "__main__":
     use_encoded_target=False
   )
 
+  if TRAIN_LIMIT > 0:
+    train_dataset = Subset(train_dataset, list(range(min(TRAIN_LIMIT, len(train_dataset)))))
+  if EVAL_LIMIT > 0:
+    eval_ids = list(range(min(EVAL_LIMIT, len(val_encoded_dataset))))
+    val_encoded_dataset = Subset(val_encoded_dataset, eval_ids)
+    val_raw_dataset = Subset(val_raw_dataset, eval_ids)
+
   #DataLoader
   train_loader = DataLoader(
     train_dataset,
@@ -162,32 +206,21 @@ if __name__ == "__main__":
   loss_fn = YoloLoss(S=S, B=B, C=C).to(DEVICE)
 
   optimizer = optim.SGD(
-    model.parameters(),
-    lr=LEARNING_RATE,
-    momentum=0.9,
-    # 5e-4→1e-3，对抗8x过拟合
-    weight_decay=1e-3
+    [
+      {"params": model.backbone.parameters(), "lr": BACKBONE_LR, "weight_decay": 5e-4},
+      {"params": model.adapter.parameters(), "lr": ADAPTER_LR, "weight_decay": 1e-3},
+      {"params": model.fc_layers.parameters(), "lr": HEAD_LR, "weight_decay": 1e-3},
+    ],
+    momentum=0.9
   )
 
-  # Warmup 5轮: 1e-4 → 3e-4, 然后切入SGDR
-  def warmup_lambda(epoch):
-      if epoch < WARMUP_EPOCHS:
-          warmup_lr = 1e-4 + (LEARNING_RATE - 1e-4) * (epoch + 1) / WARMUP_EPOCHS
-          return warmup_lr / LEARNING_RATE
-      return 1.0
+  def lr_lambda(epoch):
+    if epoch < WARMUP_EPOCHS:
+      return 0.2 + 0.8 * (epoch + 1) / WARMUP_EPOCHS
+    progress = (epoch - WARMUP_EPOCHS) / max(NUM_EPOCHS - WARMUP_EPOCHS, 1)
+    return 0.05 + 0.95 * 0.5 * (1 + math.cos(math.pi * progress))
 
-  warmup = torch.optim.lr_scheduler.LambdaLR(optimizer, warmup_lambda)
-  cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-      optimizer,
-      T_0=20,
-      T_mult=2,
-      eta_min=1e-5
-  )
-  scheduler = torch.optim.lr_scheduler.SequentialLR(
-      optimizer,
-      schedulers=[warmup, cosine],
-      milestones=[WARMUP_EPOCHS]
-  )
+  scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
   #数据记录系统
   timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -197,7 +230,12 @@ if __name__ == "__main__":
   log_file = log_dir / "training_log.csv"
   with open(log_file, 'w', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(["epoch","train_loss","val_loss","mAP","lr"])
+    writer.writerow([
+      "epoch","train_loss","val_loss","mAP","voc07_mAP",
+      "lr_backbone","lr_adapter","lr_head",
+      "best_mAP_so_far","best_val_so_far","saved_by",
+      "boxes_per_image","empty_images","top_classes"
+    ])
 
   batch_log_file = log_dir / "batch_log.csv"
   with open(batch_log_file, 'w', newline='') as f:
@@ -206,13 +244,14 @@ if __name__ == "__main__":
 
   comp_log_file = log_dir / "loss_components.csv"
   with open(comp_log_file, 'w', newline='') as f:
-    f.write("obj_w,noobj_w,coord,class,mean_conf_obj\n")
+    f.write("epoch,phase,obj_w,noobj_w,coord,class,mean_conf_obj\n")
   yolo_loss_module.COMPONENT_LOG = str(comp_log_file)
 
   print(f"训练日志保存至:{log_file}")
   # NUM_EPOCHS = 10
 
   best_val_loss = float('inf')
+  best_map = -1.0
 
   RESUME_PATH = None
   start_epoch = 1
@@ -226,8 +265,8 @@ if __name__ == "__main__":
     print(f"从epoch {start_epoch}继续训练")
 
   for epoch in range(start_epoch, NUM_EPOCHS + 1):
-    current_lr = scheduler.get_last_lr()[0]
-    print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={current_lr:.6f}")
+    current_lrs = scheduler.get_last_lr()
+    print(f"\nEpoch {epoch}/{NUM_EPOCHS} lr={current_lrs}")
     train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, DEVICE, epoch ,batch_log_file)
     val_loss = val_one_epoch(model, val_encoded_loader, loss_fn, DEVICE)
 
@@ -235,29 +274,54 @@ if __name__ == "__main__":
 
     #mAP —— 每个epoch评估
     mAP = evaluate_map(model=model, loader=val_raw_loader, device=DEVICE, conf_threshold=0.1, iou_threshold=0.5)
-    print(f"mAP@0.5: {mAP:.4f}")
+    if epoch % VOC07_EVERY == 0:
+      voc07_mAP, _ = evaluate_voc07_map(model=model, loader=val_raw_loader, device=DEVICE, conf_threshold=0.1, iou_threshold=0.5)
+    else:
+      voc07_mAP = -1.0
+
+    if epoch % STATS_EVERY == 0:
+      boxes_per_image, empty_images, top_classes = prediction_stats(model, val_raw_loader, DEVICE, conf_threshold=0.1, iou_threshold=0.5)
+    else:
+      boxes_per_image, empty_images, top_classes = -1.0, -1, ""
+    print(f"mAP@0.5: {mAP:.4f} VOC07: {voc07_mAP:.4f} boxes/img: {boxes_per_image:.2f}")
 
     scheduler.step()
 
-    #写入CSV
-    with open(log_file, 'a', newline='') as f:
-      writer = csv.writer(f)
-      writer.writerow([epoch, train_loss, val_loss, mAP, current_lr])
-
-    #保存最优模型
+    saved_by = ""
     if val_loss < best_val_loss:
       best_val_loss = val_loss
+      torch.save(model.state_dict(), log_dir / "best_val_model.pth")
+      saved_by = "val"
+
+    if mAP > best_map:
+      best_map = mAP
+      torch.save(model.state_dict(), log_dir / "best_map_model.pth")
       torch.save(model.state_dict(), log_dir / "best_model.pth")
-      torch.save({
+      saved_by = "map" if saved_by == "" else "val+map"
+
+    torch.save({
       'epoch': epoch,
       'model_state_dict': model.state_dict(),
       'optimizer_state_dict': optimizer.state_dict(),
       'scheduler_state_dict': scheduler.state_dict(),
       'train_loss': train_loss,
       'val_loss': val_loss,
-      'mAP': mAP
+      'mAP': mAP,
+      'voc07_mAP': voc07_mAP
     }, log_dir / "checkpoint.pth")
-      print(f"模型已保存 (val_loss:{val_loss:.4f}, mAP:{mAP:.4f})")
+
+    #写入CSV
+    with open(log_file, 'a', newline='') as f:
+      writer = csv.writer(f)
+      writer.writerow([
+        epoch, train_loss, val_loss, mAP, voc07_mAP,
+        current_lrs[0], current_lrs[1], current_lrs[2],
+        best_map, best_val_loss, saved_by,
+        boxes_per_image, empty_images, top_classes
+      ])
+
+    if saved_by:
+      print(f"模型已保存 ({saved_by}, val_loss:{val_loss:.4f}, mAP:{mAP:.4f})")
 
   #绘制曲线
   print("\n=== 老大，训练完成，正在绘制训练曲线喵 ===")

@@ -52,6 +52,9 @@ class VOCDataset(Dataset):
     annotation_path = Path(root_dir) / 'Annotations' / f"{image_id}.xml"
     boxes, labels = self._parse_annotation(annotation_path)
 
+    if self.split == 'train':
+      image, boxes, labels = self._random_scale_translate(image, boxes, labels)
+
     # 随机水平翻转（仅训练模式），同时翻转图片和bbox坐标
     if self.split == 'train' and random.random() < 0.5:
       image = image.transpose(Image.FLIP_LEFT_RIGHT)
@@ -70,6 +73,45 @@ class VOCDataset(Dataset):
       target = self._encode_raw_target(boxes, labels, orig_w, orig_h)
 
     return image, target
+
+  def _random_scale_translate(self, image, boxes, labels):
+    if random.random() > 0.5 or len(boxes) == 0:
+      return image, boxes, labels
+
+    w, h = image.size
+    scale = random.uniform(0.85, 1.15)
+    dx = random.uniform(-0.12, 0.12) * w
+    dy = random.uniform(-0.12, 0.12) * h
+
+    new_w = max(1, int(w * scale))
+    new_h = max(1, int(h * scale))
+    resized = image.resize((new_w, new_h), Image.BILINEAR)
+    canvas = Image.new("RGB", (w, h), (128, 128, 128))
+
+    paste_x = int(dx)
+    paste_y = int(dy)
+    src_x1 = max(0, -paste_x)
+    src_y1 = max(0, -paste_y)
+    src_x2 = min(new_w, w - paste_x)
+    src_y2 = min(new_h, h - paste_y)
+
+    if src_x2 <= src_x1 or src_y2 <= src_y1:
+      return image, boxes, labels
+
+    crop = resized.crop((src_x1, src_y1, src_x2, src_y2))
+    canvas.paste(crop, (max(0, paste_x), max(0, paste_y)))
+
+    aug_boxes = boxes.clone()
+    aug_boxes[:, [0, 2]] = aug_boxes[:, [0, 2]] * scale + paste_x
+    aug_boxes[:, [1, 3]] = aug_boxes[:, [1, 3]] * scale + paste_y
+    aug_boxes[:, [0, 2]] = aug_boxes[:, [0, 2]].clamp(0, w)
+    aug_boxes[:, [1, 3]] = aug_boxes[:, [1, 3]].clamp(0, h)
+
+    keep = ((aug_boxes[:, 2] - aug_boxes[:, 0]) >= 2) & ((aug_boxes[:, 3] - aug_boxes[:, 1]) >= 2)
+    if keep.sum().item() == 0:
+      return image, boxes, labels
+
+    return canvas, aug_boxes[keep], labels[keep]
   
   def _parse_annotation(self, annotation_path):
     tree = ET.parse(annotation_path)

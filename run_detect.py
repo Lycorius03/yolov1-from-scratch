@@ -10,18 +10,20 @@ from utils.nms import non_max_suppression
 from config import PROJECT_ROOT, VOC2007_DIR, VOC2012_DIR
 
 
-RUN_NAME = "20260607_165143"
+RUN_NAME = "20260622_122515"
+LEGACY_OUTPUT = True
 MODE = "single"
 INPUT = "test.jpg"
 NUM_SAMPLES = 5
 OUTPUT_DIR = "./outputs/detect"
-CONF_THRESHOLD = 0.4
+CONF_THRESHOLD = 0.1
 IOU_THRESHOLD = 0.5
 FONT = ImageFont.truetype("arial.ttf", size=16)
 
 #加载 best_model.pth 权重，返回 eval 模式的模型
 def load_best_model(weight_path, device="cuda"):
-  model = YOLOv1(S=7, B=2, C=20).to(device)
+  mode = "legacy" if LEGACY_OUTPUT else "sprint"
+  model = YOLOv1(S=7, B=2, C=20, output_mode=mode).to(device)
   model.load_state_dict(torch.load(weight_path, map_location=device))
   model.eval()
   return model
@@ -113,9 +115,9 @@ if __name__ == "__main__":
     ])
 
     val_dataset = VOCDataset(
-      root_dirs=[str(VOC2007_DIR), str(VOC2012_DIR)],
+      root_dirs=[str(VOC2007_DIR)],
       transform=transform,
-      split='val',
+      split='test',
       use_encoded_target=False
     )
 

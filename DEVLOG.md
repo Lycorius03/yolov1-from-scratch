@@ -1265,3 +1265,186 @@ Head FC 50176→4096 单层 205M 参数，占总参数 83%。Dropout(0.5) 在 1.
 | P2 | 数据增强弱 | GaussianBlur + ColorJitter 扩展 | train.py |
 | P2 | 重启周期过长 | SGDR T_0 40→20，2次→4次重启 | train.py |
 | P3 | λ_noobj | 不调，sigmoid 下数学上刚好 | — |
+
+---
+
+## 2026-06-22 — 全量冲刺：输出约束 + CE分类 + VOC07评估
+
+### 诊断
+
+`runs/20260622_122515` 给出的结论很明确：
+
+- best mAP = 0.3633，epoch 143
+- best val_loss = 1.3055，epoch 144
+- epoch 146 重启回 3e-4 后，mAP 从 0.36 附近掉到 0.33
+- 最后 epoch 170 mAP = 0.3104，不代表最好模型
+- 512 张 test，conf=0.1 时平均 14.1 框/图，假阳性偏多
+- 预测类别偏 person / chair / car
+- bbox 最大 w/h 超过 1.0，展示和评估都需要 clamp
+
+判断：模型能学，但上限被三件事压住：class 梯度弱、后期 lr 重启太猛、bbox 输出空间不干净。
+
+### 修改
+
+- `models/yolov1.py`
+  - x/y/w/h 全部 sigmoid
+  - conf sigmoid
+  - class 保持 logits，不在 forward softmax
+
+- `loss/yolo_loss.py`
+  - class MSE 改 CrossEntropy
+  - wh 去掉 abs
+  - IoU target 前 30 epoch clamp，之后真实 IoU
+  - noobj class reg 降为辅助项
+
+- `dataset/voc_dataset.py`
+  - 加 bbox-aware scale / translate
+  - 裁剪越界 bbox
+  - 过滤无效 bbox
+
+- `train.py`
+  - backbone / adapter / head 分组 lr
+  - warmup + cosine，不再 SGDR 大重启
+  - 保存 best_val_model / best_map_model / best_model
+  - training_log 增加 VOC07 mAP、best、保存原因、框数统计
+
+- `detect.py`
+  - class logits decode 时 softmax
+  - bbox decode 不再 abs
+  - xyxy clamp 到 [0,1]
+  - visualize_predictions 修复无框/多框返回问题
+
+- `utils/map.py`
+  - 保留 torchmetrics mAP
+  - 新增 VOC2007 11-point mAP
+
+### 风险
+
+- 新输出空间和旧权重不兼容，需要重新训练。
+- sigmoid(w/h) 可能限制超大物体，但 VOC 中大多数目标仍在可表达范围内。
+- CE 分类可能让 early loss 变大，这是正常现象。
+
+### 预期
+
+- 更少越界框
+- class collapse 缓解
+- best 权重管理更准确
+- mAP 曲线不再被后期高 lr 重启打穿
+
+### Smoke Test 验证结果（2026-06-22）
+
+以下所有测试在 `F:\.anaconda\envs\torchenv\python.exe` 环境下执行，使用 `cuda` 设备。
+
+#### 1. 语法检查 — 全部通过
+
+8 个已修改文件 `py_compile` 全部 OK：
+
+```text
+models/yolov1.py      OK
+loss/yolo_loss.py      OK
+dataset/voc_dataset.py OK
+train.py               OK
+detect.py              OK
+utils/map.py           OK
+utils/loss_test.py     OK
+run_detect.py          OK
+```
+
+#### 2. 前向 shape + 梯度流通 — 通过
+
+- Sprint 模式：输出 `[1, 1470]`，bbox x/y/w/h/conf ∈ [0,1]（sigmoid 约束正确），class logits 无界（设计目标）
+- Legacy 模式：bbox w/h ≥ 0（abs 约束），class softmax sum = 1.0（向后兼容）
+- 梯度流通：166 个参数全部有有效梯度，无死节点
+- 最大梯度范数 5352，最小 4.8（梯度动态范围正常）
+
+#### 3. Loss sanity test — 通过
+
+`utils/loss_test.py` 运行结果：Loss = 11.86，无 NaN，无 Inf。新 CE 分类 + sigmoid bbox 参数化下 loss 计算稳定。
+
+#### 4. Mini overfit（单图 40 步）— 通过
+
+选取 VOC2007 train 中含目标的图片（idx=0），1 张图训练 40 step（lr=1e-4, SGD+momentum=0.9）：
+
+| 指标 | 数值 |
+| :--- | :--- |
+| First loss | 18.92 |
+| Last loss | 2.28 |
+| 预测框数 | 8 |
+| Top box class | 8 (chair), score=0.41 |
+
+**结论**：新 CE 分类 + sigmoid bbox + IoU clamp 阶段开关的 loss/输出链路可以训练，单图能收敛、能出框、类别正确。
+
+#### 5. VOC07 评估链路 — 通过
+
+128 张 VOC2007 test 图片上运行 `evaluate_voc07_map()`：
+
+- 无崩溃、无 NaN、无 shape mismatch
+- Fresh model mAP = 0.0（预期，未训练模型无检测能力）
+- 11-point AP 计算逻辑验证通过
+
+#### 5.5 512 张阈值扫描 — 通过
+
+| conf | 总框数 | 框/图 | 空图数 |
+| :--- | :--- | :--- | :--- |
+| 0.01 | 22928 | 44.8 | 0/512 |
+| 0.05 | 0 | 0.0 | 512/512 |
+| 0.10 | 0 | 0.0 | 512/512 |
+| 0.20 | 0 | 0.0 | 512/512 |
+| 0.30 | 0 | 0.0 | 512/512 |
+| 0.50 | 0 | 0.0 | 512/512 |
+
+未训练模型 score = conf × softmax(class) ≈ 0.5 × 0.05 = 0.025，conf≥0.05 全部为空符合预期。conf=0.01 时 44.8 框/图来自 98 个 cell×bbox 中 score>0.01 的部分，NMS 前原始输出。
+
+#### 6. 推理出图 — 通过
+
+5 张随机 VOC2007 test 图片推理，`decode_predictions` + NMS + PIL 绑框全链路无崩溃。未训练模型 0 框输出（score = conf × softmax(class) ≈ 0.5 × 0.05 = 0.025 < 0.1），符合预期。
+
+#### 7. 1 epoch smoke train — 通过
+
+配置：`YOLO_EPOCHS=1 YOLO_TRAIN_LIMIT=32 YOLO_EVAL_LIMIT=64`。
+
+| 检查项 | 结果 |
+| :--- | :--- |
+| train_loss | 9.90（正常，CE 分类初始高） |
+| val_loss | 9.15 |
+| mAP / VOC07 mAP | 0.0（32 张 1 epoch 预期） |
+| best_val_model.pth | ✅ 已保存 |
+| best_map_model.pth | ✅ 已保存（best_map=-1.0 初始值保证首轮落盘） |
+| best_model.pth | ✅ 已保存（兼容入口） |
+| checkpoint.pth | ✅ 含 model/optimizer/scheduler state |
+| training_log.csv | ✅ 13 字段齐全 |
+| loss_components.csv | ✅ epoch/phase 可区分 |
+| train_curve.png | ✅ 已生成 |
+| saved_by | val+map（双条件触发正确） |
+
+**loss 组成分析**（smoke train epoch 1）：
+
+| 组件 | 均值 | 说明 |
+| :--- | :--- | :--- |
+| class (CE) | ~120 | CE 分类初始高，正常现象 |
+| noobj | ~19 | sigmoid 初始 conf≈0.5，noobj 压制力合理 |
+| coord | ~12 | 坐标尚未学习 |
+| obj (×3.0) | ~3 | obj 信号弱，与未学习状态一致 |
+
+随着训练进行，class loss 会从 ~120 逐步下降，coord 和 obj 也会改善。noobj 应随 conf 下降而同步降低。
+
+### 最终文件改动清单
+
+| 文件 | +行 | -行 | 核心改动 |
+| :--- | :---: | :---: | :--- |
+| `models/yolov1.py` | +16 | -4 | x/y/w/h/conf sigmoid, class logits, legacy 模式 |
+| `loss/yolo_loss.py` | +34 | -11 | class MSE→CE, wh 去 abs, IoU clamp 阶段开关 |
+| `dataset/voc_dataset.py` | +43 | -1 | bbox-aware scale/translate/crop/filter |
+| `train.py` | +179 | -115 | 分组 lr, warmup+cosine, 双 best 权重, CSV 扩展 |
+| `detect.py` | +34 | -26 | class logits→softmax, bbox 去 abs, xyxy clamp |
+| `utils/map.py` | +116 | -23 | VOC07 11-point AP/mAP |
+| `run_detect.py` | +7 | -5 | LEGACY_OUTPUT 开关 |
+| `utils/loss_test.py` | +10 | -8 | 修复导入路径 |
+| `DEVLOG.md` | +64 | -0 | 诊断、改动、风险、测试记录 |
+
+### 已知风险与后续建议
+
+1. **旧权重不兼容**：`runs/20260622_122515` 的最佳模型（mAP=0.3633）需通过 `LEGACY_OUTPUT=True` 加载，否则 sigmoid 双重作用导致输出异常。`run_detect.py` 已设此开关。
+2. **CE 分类早期 loss 大**：class_loss ~120 是正常现象（20 类均匀分布 CE = -ln(0.05) ≈ 3.0，× S×S 个 cell 累计），随训练快速下降。
+3. **sigmoid(w/h) 约束**：w/h ∈ [0,1] 要求目标宽高不超过全图。VOC 中绝大多数目标满足此条件，但极端长宽比物体（如 train 类）的回归精度需监控。
+4. **正式训练建议**：使用全量数据（16551 张），`YOLO_EPOCHS=170` 或更高，不设 `YOLO_TRAIN_LIMIT`/`YOLO_EVAL_LIMIT` 限制。

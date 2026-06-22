@@ -1,7 +1,9 @@
 import sys
+from pathlib import Path
 
 print(__file__)
 print(sys.path[0])
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 import torch

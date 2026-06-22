@@ -86,7 +86,7 @@ def associate(tracks, detections, iou_threshold=0.3, max_age=30):
 # ── 主逻辑 ──
 if __name__ == "__main__":
     # 配置
-    RUN_NAME = "20260621_152120"
+    RUN_NAME = "20260622_122515"
     VIDEO_PATH = None            # None = 摄像头
     OUTPUT = "outputs/track/tracked.mp4"
     CONF_THRESHOLD = 0.1         # 检测阈值，放低让人框尽量出来

@@ -3,13 +3,14 @@ import torch.nn as nn
 from torchvision.models import resnet50, ResNet50_Weights
 
 class YOLOv1(nn.Module):
-  def __init__(self, S=7, B=2, C=20):
+  def __init__(self, S=7, B=2, C=20, output_mode="sprint"):
     super().__init__()
     #注意虽然现在python2已经不再被广泛使用，但是如果是在python2里，激活父类初始化应写作super(YOLOv1, self).__init__()
 
     self.S = S
     self.B = B
     self.C = C
+    self.output_mode = output_mode
 
     # print(f"YOLOv1模型初始化完成<(￣︶￣)↗[GO!] → S={S}, B={B}, C={C}")
 
@@ -44,9 +45,20 @@ class YOLOv1(nn.Module):
     x = self.adapter(x)
     x = self.fc_layers(x)
     x = x.view(-1, self.S, self.S, self.B * 5 + self.C)
-    x[..., 4] = torch.sigmoid(x[..., 4])
-    x[..., 9] = torch.sigmoid(x[..., 9])
-    x[..., 10:] = torch.softmax(x[..., 10:], dim=-1)
+
+    if self.output_mode == "legacy":
+      x[..., 2:4] = torch.abs(x[..., 2:4])
+      x[..., 7:9] = torch.abs(x[..., 7:9])
+      x[..., 4] = torch.sigmoid(x[..., 4])
+      x[..., 9] = torch.sigmoid(x[..., 9])
+      x[..., 10:] = torch.softmax(x[..., 10:], dim=-1)
+    else:
+      # bbox gate
+      for b in range(self.B):
+        start = b * 5
+        x[..., start:start + 4] = torch.sigmoid(x[..., start:start + 4])
+        x[..., start + 4] = torch.sigmoid(x[..., start + 4])
+
     return x.reshape(x.shape[0], -1)
 
 
