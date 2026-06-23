@@ -11,7 +11,6 @@ from config import PROJECT_ROOT, VOC2007_DIR, VOC2012_DIR
 
 
 RUN_NAME = "20260622_122515"
-LEGACY_OUTPUT = True
 MODE = "single"
 INPUT = "test.jpg"
 NUM_SAMPLES = 5
@@ -21,8 +20,7 @@ IOU_THRESHOLD = 0.5
 
 #加载 best_model.pth 权重，返回 eval 模式的模型
 def load_best_model(weight_path, device="cuda"):
-  mode = "legacy" if LEGACY_OUTPUT else "sprint"
-  model = YOLOv1(S=7, B=2, C=20, output_mode=mode).to(device)
+  model = YOLOv1(S=7, B=2, C=20).to(device)
   model.load_state_dict(torch.load(weight_path, map_location=device))
   model.eval()
   return model

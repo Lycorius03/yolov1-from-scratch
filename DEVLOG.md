@@ -1399,19 +1399,18 @@ run_detect.py          OK
 
 | 文件 | +行 | -行 | 核心改动 |
 | :--- | :---: | :---: | :--- |
-| `models/yolov1.py` | +16 | -4 | x/y/w/h/conf sigmoid, class logits, legacy 模式 |
+| `models/yolov1.py` | +16 | -4 | x/y/w/h/conf sigmoid, class logits |
 | `loss/yolo_loss.py` | +34 | -11 | class MSE→CE, wh 去 abs, IoU clamp 阶段开关 |
 | `dataset/voc_dataset.py` | +43 | -1 | bbox-aware scale/translate/crop/filter |
 | `train.py` | +179 | -115 | 分组 lr, warmup+cosine, 双 best 权重, CSV 扩展 |
 | `detect.py` | +34 | -26 | class logits→softmax, bbox 去 abs, xyxy clamp |
 | `utils/map.py` | +116 | -23 | VOC07 11-point AP/mAP |
-| `run_detect.py` | +7 | -5 | LEGACY_OUTPUT 开关 |
+| `run_detect.py` | +2 | -10 | 简化 load_best_model，移除 legacy 模式 |
 | `utils/loss_test.py` | +10 | -8 | 修复导入路径 |
 | `DEVLOG.md` | +64 | -0 | 诊断、改动、风险、测试记录 |
 
 ### 已知风险与后续建议
 
-1. **旧权重不兼容**：`runs/20260622_122515` 的最佳模型（mAP=0.3633）需通过 `LEGACY_OUTPUT=True` 加载，否则 sigmoid 双重作用导致输出异常。`run_detect.py` 已设此开关。
-2. **CE 分类早期 loss 大**：class_loss ~120 是正常现象（20 类均匀分布 CE = -ln(0.05) ≈ 3.0，× S×S 个 cell 累计），随训练快速下降。
-3. **sigmoid(w/h) 约束**：w/h ∈ [0,1] 要求目标宽高不超过全图。VOC 中绝大多数目标满足此条件，但极端长宽比物体（如 train 类）的回归精度需监控。
-4. **正式训练建议**：使用全量数据（16551 张），`YOLO_EPOCHS=170` 或更高，不设 `YOLO_TRAIN_LIMIT`/`YOLO_EVAL_LIMIT` 限制。
+1. **CE 分类早期 loss 大**：class_loss ~120 是正常现象（20 类均匀分布 CE = -ln(0.05) ≈ 3.0，× S×S 个 cell 累计），随训练快速下降。
+2. **sigmoid(w/h) 约束**：w/h ∈ [0,1] 要求目标宽高不超过全图。VOC 中绝大多数目标满足此条件，但极端长宽比物体（如 train 类）的回归精度需监控。
+3. **正式训练建议**：使用全量数据（16551 张），`YOLO_EPOCHS=170` 或更高，不设 `YOLO_TRAIN_LIMIT`/`YOLO_EVAL_LIMIT` 限制。
