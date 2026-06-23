@@ -13,15 +13,15 @@ from utils.nms import non_max_suppression
 from config import PROJECT_ROOT
 
 
-CONF_THRESHOLD = 0.5
-IOU_THRESHOLD = 0.35
+CONF_THRESHOLD = 0.30
+IOU_THRESHOLD = 0.30
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # PIL 字体（画中文/英文标签用）
 FONT = ImageFont.truetype("arial.ttf", size=20)
 
-def load_model(run_name="20260622_122515"):
-    weight_path = PROJECT_ROOT / "runs" / run_name / "best_model.pth"
+def load_model(run_name="20260622_224439"):
+    weight_path = PROJECT_ROOT / "runs" / run_name / "best_map_model.pth"
     if not weight_path.exists():
         raise FileNotFoundError(f"权重不存在: {weight_path}")
     model = YOLOv1(S=7, B=2, C=20).to(DEVICE)
@@ -156,7 +156,7 @@ def main():
               command=lambda: [root.withdraw(), run_image(model), root.deiconify()]
               ).pack(pady=5)
 
-    tk.Label(root, text="20260622_122515 | conf=0.5 iou=0.35", font=("Arial", 8), fg="gray").pack(side="bottom", pady=10)
+    tk.Label(root, text="20260622_224439 | conf=0.5 iou=0.35", font=("Arial", 8), fg="gray").pack(side="bottom", pady=10)
 
     root.mainloop()
 

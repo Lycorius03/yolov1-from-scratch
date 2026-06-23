@@ -5,6 +5,8 @@
 ![Backbone](https://img.shields.io/badge/Backbone-ResNet--50-important?style=flat-square)
 ![Dataset](https://img.shields.io/badge/Dataset-Pascal%20VOC%202007%20%2B%202012-green?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Complete-success?style=flat-square)
+![mAP](https://img.shields.io/badge/VOC07%20mAP-43.69%25-blue?style=flat-square)
 
 ## 提取 YOLOv1 核心思想，注入现代 Backbone 的重构实践
 
@@ -77,7 +79,7 @@
 
 ---
 
-## 当前进度 (Phase)
+## 当前进度 (Phase) — 🏁 项目完结
 
 | Phase | 模块 | 状态 | 说明 |
 | :---: | :--- | :---: | :--- |
@@ -86,12 +88,25 @@
 | 2 | 🗂️ `VOCDataset` 数据加载器 | ✅ 完成 | XML 解析、原图尺寸归一化、水平翻转增强 |
 | 3 | 🏗️ YOLOv1 模型结构 | ✅ 完成 | ResNet-50 Backbone + 桥接层 + 全连接检测头 |
 | 4 | 📉 Loss 函数 | ✅ 完成 | 多任务联合损失（坐标/置信度/分类，含 IoU 坐标转换） |
-| 5 | 🔁 训练循环 + 可视化 | ✅ 完成 | SGDR + Warmup + 自动 checkpoint + 训练曲线绘制 |
-| 6 | 🔍 推理与 NMS + mAP 评估 | ✅ 完成 | NMS 后处理 + mAP@0.5 每 epoch 评估 |
+| 5 | 🔁 训练循环 + 可视化 | ✅ 完成 | 分组 lr + Warmup + Cosine Annealing + 自动 checkpoint |
+| 6 | 🔍 推理与 NMS + mAP 评估 | ✅ 完成 | NMS 后处理 + VOC07 11-point mAP 每 epoch 评估 |
 | 6 | 🖼️ 推理入口脚本 | ✅ 完成 | 单图/目录/验证集采样三种模式 |
 | 7 | 📊 画图可视化模块 | ✅ 完成 | 双 y 轴训练曲线 + 单指标曲线 |
 | 8 | 🎥 视频目标追踪 | ✅ 完成 | IoU 匹配的简单多目标追踪 |
-| 9 | 🚀 架构升级 | ✅ 完成 | 24 层自定义卷积 → ResNet-50 (ImageNet 预训练) |
+| 9 | 🚀 架构升级 | ✅ 完成 | ResNet-50 (ImageNet 预训练) + sigmoid 输出 + CE 分类 |
+
+### 🎯 最终成绩
+
+| 指标 | 数值 |
+| :--- | :--- |
+| **VOC07 mAP@0.5 (11-point)** | **43.69%** |
+| COCO mAP@0.5 (torchmetrics) | 42.89% |
+| Best Val Loss | 1.5719 |
+| 训练数据 | VOC2007+2012 trainval (16,551 张) |
+| 评估数据 | VOC2007 test (4,952 张，完全独立) |
+| 最佳权重 | `runs/20260622_224439/best_map_model.pth` (epoch 154 / 170) |
+
+> 本项目于 **2026 年 6 月 23 日** 正式完结。后续将仅进行微调优化。
 
 ---
 
@@ -103,7 +118,7 @@
 
 **桥接层** (`self.adapter`)：单层 `Conv2d(2048→1024, k=3, stride=2) + BN + LeakyReLU(0.1)`，将 ResNet 的特征图压回 YOLOv1 原汁原味的 $7 \times 7 \times 1024$ 网格空间。
 
-**全连接检测头** (`self.fc_layers`)：完全沿用 YOLOv1 原始设计 — `Flatten → FC(50176→4096) → LeakyReLU → Dropout(0.5) → FC(4096→1470)`，输出严格对齐 $S \times S \times (B \times 5 + C) = 1470$。
+**全连接检测头** (`self.fc_layers`)：完全沿用 YOLOv1 原始设计 — `Flatten → FC(50176→4096) → LeakyReLU → Dropout(0.7) → FC(4096→1470)`，输出严格对齐 $S \times S \times (B \times 5 + C) = 1470$。forward 中对 x/y/w/h/conf 做 sigmoid 约束至 [0,1]，class 保持 logits 由 CrossEntropy Loss 处理。
 
 ### YOLOv1 损失函数的多任务结构
 
@@ -156,6 +171,8 @@ yolov1-from-scratch/
 ├── track.py                      # 视频目标追踪（IoU 匹配 + track ID）
 ├── test_model.py                 # 模型前向传播测试
 ├── overfit_test.py               # 过拟合回归测试
+├── debug_predictions.py          # 预测诊断脚本
+├── eval_checkpoints.py           # Checkpoint mAP 独立评估
 ├── config.py                     # 统一路径配置（本地/云端一键切换）
 ├── runs/                         # 训练输出（gitignore 忽略）
 ├── requirements.txt              # 项目依赖
@@ -254,9 +271,12 @@ python run_detect.py
 
 ## 后续计划
 
-- **冻结 Backbone 实验**：冻结 ResNet-50 前几层，仅微调高层和检测头，进一步加速收敛
-- **更强数据增强**：RandomAffine / MixUp / Mosaic，缓解过拟合
-- **锚框 (Anchor Box)**：引入 YOLOv2 的 anchor 机制，改善密集小目标检测
+项目主体已于 2026 年 6 月 23 日完结。后续可能的微调方向：
+
+- **冻结 Backbone 实验**：冻结 ResNet-50 前几层，仅微调高层和检测头
+- **更强数据增强**：RandomAffine / MixUp / Mosaic
+- **锚框 (Anchor Box)**：引入 YOLOv2 的 anchor 机制，改善小目标检测
+- **特征金字塔 (FPN)**：多尺度特征融合，缓解小目标漏检
 
 ---
 
@@ -269,4 +289,4 @@ python run_detect.py
 
 ---
 
-持续更新中 · Last updated: 2026-06-21 (架构重构：ResNet-50 Backbone 替换 24 层自定义卷积)
+项目完结 · 2026-06-23 · VOC07 mAP@0.5: 43.69%

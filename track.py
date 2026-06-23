@@ -86,11 +86,11 @@ def associate(tracks, detections, iou_threshold=0.3, max_age=30):
 # ── 主逻辑 ──
 if __name__ == "__main__":
     # 配置
-    RUN_NAME = "20260622_122515"
+    RUN_NAME = "20260622_224439"
     VIDEO_PATH = None            # None = 摄像头
     OUTPUT = "outputs/track/tracked.mp4"
-    CONF_THRESHOLD = 0.1         # 检测阈值，放低让人框尽量出来
-    IOU_THRESHOLD = 0.5          # NMS 阈值
+    CONF_THRESHOLD = 0.30        # 检测阈值
+    IOU_THRESHOLD = 0.30         # NMS 阈值
     TRACK_IOU = 0.3              # 追踪匹配 IoU 阈值
     MAX_AGE = 30                  # 消失多久后丢弃
     PERSON_ONLY = True           # 只追踪 person
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     print(f"设备: {DEVICE}")
 
     # 加载模型
-    weight_path = PROJECT_ROOT / "runs" / RUN_NAME / "best_model.pth"
+    weight_path = PROJECT_ROOT / "runs" / RUN_NAME / "best_map_model.pth"
     if not weight_path.exists():
         raise FileNotFoundError(f"权重不存在: {weight_path}")
     model = YOLOv1(S=7, B=2, C=20).to(DEVICE)

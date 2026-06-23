@@ -10,13 +10,13 @@ from utils.nms import non_max_suppression
 from config import PROJECT_ROOT, VOC2007_DIR, VOC2012_DIR
 
 
-RUN_NAME = "20260622_122515"
-MODE = "single"
+RUN_NAME = "20260622_224439"
+MODE = "val_sample"
 INPUT = "test.jpg"
-NUM_SAMPLES = 5
+NUM_SAMPLES = 10
 OUTPUT_DIR = "./outputs/detect"
-CONF_THRESHOLD = 0.1
-IOU_THRESHOLD = 0.5
+CONF_THRESHOLD = 0.30
+IOU_THRESHOLD = 0.30
 
 #加载 best_model.pth 权重，返回 eval 模式的模型
 def load_best_model(weight_path, device="cuda"):
@@ -64,8 +64,8 @@ if __name__ == "__main__":
   DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
   print(f"使用设备: {DEVICE}")
 
-  # 拼出 best_model.pth 路径
-  weight_path = PROJECT_ROOT / "runs" / RUN_NAME / "best_model.pth"
+  # 拼出 best_map_model.pth 路径
+  weight_path = PROJECT_ROOT / "runs" / RUN_NAME / "best_map_model.pth"
   if not weight_path.exists():
     raise FileNotFoundError(f"老大，找不到 {weight_path} 喵，检查一下 RUN_NAME")
   print(f"加载模型权重: {weight_path}")
